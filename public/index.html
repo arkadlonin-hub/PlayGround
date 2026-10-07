@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>My AI — Builder</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+  <!-- Header -->
+  <header class="header glass">
+    <button id="menuBtn" class="icon-btn" aria-label="القائمة">☰</button>
+    <div class="brand"><span class="logo">✦</span><span>My AI</span></div>
+    <div class="header-actions">
+      <span id="connBadge" class="conn" title="حالة الاتصال">…</span>
+      <button id="settingsBtn" class="icon-btn" title="مفاتيح النماذج">⚙</button>
+      <button id="projectsBtn" class="pill-btn">Projects / سجل المشاريع</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- Side nav (desktop) / drawer (mobile) -->
+    <aside id="sideNav" class="sidenav">
+      <button id="newProjectBtn" class="primary-btn">+ New Project</button>
+      <div class="side-label">المشاريع الأخيرة</div>
+      <div id="sideProjects" class="side-projects"></div>
+      <div class="side-label">المشروع الحالي</div>
+      <div class="side-row">
+        <button id="filesBtn2" class="ghost-btn">📁 Files</button>
+        <button id="previewBtn2" class="ghost-btn">👁 Preview</button>
+      </div>
+      <div id="engineNote" class="engine-note"></div>
+    </aside>
+    <div id="scrim" class="scrim" hidden></div>
+
+    <!-- Chat column -->
+    <main class="chat-col">
+      <div class="chat-title glass">
+        <div>
+          <div id="projectName" class="project-name">مشروع جديد</div>
+          <div id="chatSubtitle" class="chat-sub">اسأل، أرفق، ثم اضغط Build</div>
+        </div>
+        <div class="title-actions">
+          <button id="filesBtn" class="pill-btn sm">📁 Files</button>
+          <button id="previewBtn" class="pill-btn sm accent">👁 Preview</button>
+        </div>
+      </div>
+
+      <div id="messages" class="messages"></div>
+
+      <!-- Composer -->
+      <div class="composer-wrap">
+        <div id="chips" class="chips"></div>
+        <div class="composer glass">
+          <textarea id="promptInput" rows="2" placeholder="ابنِ لي لعبة استراتيجية..."></textarea>
+          <div class="composer-bar">
+            <div class="cgroup">
+              <label class="icon-btn file" title="إرفاق">＋<input id="fileInput" type="file" multiple hidden accept="image/*,video/*,.pdf,.txt,.md,.js,.ts,.py,.json,.zip" /></label>
+              <button id="attachBtn" class="pill-btn sm">Attach</button>
+            </div>
+            <div class="cgroup">
+              <button id="modelBtn" class="pill-btn sm">Model: <b id="modelName">Fusion 🔥</b> ▼</button>
+              <button id="fusionBtn" class="pill-btn sm fire">🔥 Fusion ▼</button>
+              <button id="buildBtn" class="build-btn">Build →</button>
+            </div>
+          </div>
+        </div>
+        <div class="hint">التقدم يظهر كنص مفهوم — التفاصيل التقنية داخل «Show details» فقط.</div>
+      </div>
+    </main>
+
+    <!-- Preview column (desktop side panel) -->
+    <section id="previewPanel" class="preview-panel">
+      <div class="pv-head glass">
+        <button id="pvBack" class="icon-btn">→</button>
+        <b>Preview</b>
+        <div class="seg">
+          <button data-vp="mobile" class="on">Mobile</button><button data-vp="tablet">Tablet</button><button data-vp="desktop">Desktop</button>
+        </div>
+        <div class="pv-tools">
+          <button id="pvRun" class="pill-btn sm">Run</button>
+          <button id="pvStop" class="pill-btn sm">Stop</button>
+          <button id="pvRefresh" class="pill-btn sm">Refresh</button>
+          <button id="pvExpand" class="pill-btn sm" title="ملء الشاشة">⛶</button>
+        </div>
+      </div>
+      <div class="pv-body">
+        <div id="pvFrameWrap" class="pv-frame mobile"><iframe id="pvFrame" title="preview" sandbox="allow-scripts allow-modals"></iframe></div>
+        <div id="pvEmpty" class="pv-empty">ابنِ المشروع أولًا لتظهر المعاينة الحية هنا.<br />المعاينة تشغّل الملفات الحقيقية — ليست صورة ثابتة.</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Projects page -->
+  <div id="projectsPage" class="page" hidden>
+    <div class="page-head"><b>Projects</b><button id="closeProjects" class="icon-btn">✕</button></div>
+    <button id="newProjectBtn2" class="primary-btn">+ New Project</button>
+    <div id="projectList" class="proj-list"></div>
+  </div>
+
+  <!-- Files drawer -->
+  <div id="filesDrawer" class="drawer" hidden>
+    <div class="page-head"><b>📁 Files</b><button id="closeFiles" class="icon-btn">✕</button></div>
+    <div id="fileTree" class="file-tree"></div>
+    <pre id="fileView" class="file-view" dir="ltr"></pre>
+  </div>
+
+  <!-- Model bottom-sheet -->
+  <div id="modelSheet" class="sheet" hidden>
+    <div class="sheet-card glass">
+      <div class="page-head"><b>اختر النموذج</b><button id="closeModel" class="icon-btn">✕</button></div>
+      <button id="fusionModeBtn" class="model-row fire">🔥 Fusion — عدة نماذج تعمل معًا</button>
+      <div id="modelList"></div>
+      <div class="hint">Single Model Mode يستخدم نموذجًا واحدًا فقط. Fusion يوزع المهام حسب تفوق كل نموذج.</div>
+    </div>
+  </div>
+
+  <!-- Settings: real model keys -->
+  <div id="settingsSheet" class="sheet" hidden>
+    <div class="sheet-card glass">
+      <div class="page-head"><b>⚙ مفاتيح النماذج الحقيقية</b><button id="closeSettings" class="icon-btn">✕</button></div>
+      <div class="hint">بدون مفاتيح: Fusion يعمل بنماذج حقيقية مجانية. أضف مفتاح OpenRouter (له نماذج مجانية كثيرة من عائلات Qwen وDeepSeek وLlama وGemma وMistral...) لفتح Fusion متعدد المزودين. المفاتيح تبقى على خادمك المحلي فقط.</div>
+      <label class="fld">OpenRouter API Key<input id="setOR" type="password" placeholder="sk-or-..." dir="ltr" /></label>
+      <label class="fld">Custom OpenAI-compatible Base URL<input id="setBase" type="text" placeholder="https://..." dir="ltr" /></label>
+      <label class="fld">Custom API Key<input id="setKey" type="password" placeholder="..." dir="ltr" /></label>
+      <label class="fld">Custom Model ID<input id="setModel" type="text" placeholder="model-id" dir="ltr" /></label>
+      <div class="row-btns"><button id="saveSettings" class="primary-btn">حفظ</button></div>
+      <div id="setStatus" class="hint"></div>
+    </div>
+  </div>
+
+  <!-- Fusion bottom-sheet -->
+  <div id="fusionSheet" class="sheet" hidden>
+    <div class="sheet-card glass">
+      <div class="page-head"><b>🔥 Fusion</b><button id="closeFusion" class="icon-btn">✕</button></div>
+      <div class="hint">كل نموذج يأخذ المهمة التي يتفوق فيها — وليس اختيار نموذج واحد.</div>
+      <div id="fusionList"></div>
+      <button id="manageModels" class="pill-btn sm">Manage models</button>
+    </div>
+  </div>
+</div>
+<script src="app.js" type="module"></script>
+</body>
+</html>

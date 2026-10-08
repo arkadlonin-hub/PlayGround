@@ -1,24 +1,23 @@
 import { useState } from 'react';
 import { Brain, GraduationCap, Lightbulb, Send, Sparkles, Map as MapIcon, Telescope } from 'lucide-react';
 import { useStore, addXP } from '../core/store';
-import type { TutorMode } from '../core/ai';
-import { coachAdvices, forgettingQueue, predictQuestions, tutorReply, weaknessMap } from '../core/ai';
+import { coachAdvices, forgettingQueue, predictQuestions, similarity, gradeOf, weaknessMap } from '../core/ai';
 import { Btn, Chip, Glass, Sheet } from '../ui/kit';
 import { EmptyContent } from './study';
 
-const MODES: { id: TutorMode; name: string; icon: string }[] = [
-  { id: 'teacher', name: ' المعلّم', icon: '👨‍🏫' }, { id: 'explainer', name: 'المبسّط', icon: '💡' },
-  { id: 'socratic', name: 'سقراطي', icon: '❓' }, { id: 'trainer', name: 'مدرّب امتحان', icon: '🎯' },
-  { id: 'solver', name: 'حل المسائل', icon: '🧮' }, { id: 'reviser', name: 'مساعد المراجعة', icon: '🔁' },
-];
+export type TutorLevel = 1 | 2 | 3;
+export type TutorAct = 'explain' | 'teach' | 'ask' | 'hint' | 'check' | 'mistake' | 'practice' | 'exam';
 
-export function Tutor() {
+export function Tutor({ go }: { go?: (t: string) => void }) {
   const { s, set } = useStore();
-  const [mode, setMode] = useState<TutorMode>('teacher');
+  void set;
+  const [level, setLevel] = useState<TutorLevel>(2);
+  const [act, setAct] = useState<TutorAct>('explain');
   const [q, setQ] = useState('');
-  const [chat, setChat] = useState<{ me: string; ai: string[]; src: string }[]>([]);
-  const [hintLvl, setHintLvl] = useState(0);
-  const concepts = s.materials.flatMap(m => m.units.flatMap(u => u.lessons.flatMap(l => l.concepts.map(c => ({ ...c, lesson: l.title })))));
+  const [chat, setChat] = useState<{ me: string; ai: string; src: string; grounded: boolean }[]>([]);
+  const [checkAns, setCheckAns] = useState('');
+  const [verdict, setVerdict] = useState<string | null>(null);
+  const concepts = s.materials.flatMap(m => m.units.flatMap(u => u.lessons.flatMap(l => l.concepts.map(c => ({ ...c, lesson: l.title, mat: m.name, ref: l.sourceRef })))));
   const avg = concepts.length ? Math.round(concepts.reduce((a, c) => a + c.mastery, 0) / concepts.length) : 0;
   const relatedOf = (query: string) => {
     const words = query.split(/\s+/).filter(w => w.length > 2);
@@ -29,44 +28,96 @@ export function Tutor() {
     }
     return score > 0 ? best : null;
   };
-  const send = (text?: string) => {
-    const query = (text ?? q).trim();
-    if (!query) return;
+  const ACTS: { id: TutorAct; n: string; icon: string }[] = [
+    { id: 'explain', n: 'اشرح', icon: '💡' }, { id: 'teach', n: 'درّسني', icon: '👨‍🏫' },
+    { id: 'ask', n: 'اسألني', icon: '❓' }, { id: 'hint', n: 'تلميح', icon: '🔦' },
+    { id: 'check', n: 'صحح إجابتي', icon: '✅' }, { id: 'mistake', n: 'أين خطئي؟', icon: '🔍' },
+    { id: 'practice', n: 'درّبني', icon: '🎯' }, { id: 'exam', n: 'اختبرني', icon: '⏱️' },
+  ];
+  const answer = (query: string, a: TutorAct, lvl: TutorLevel) => {
     const rel = relatedOf(query);
-    const mistake = rel ? s.errors.find(e => e.conceptId === rel.id && !e.resolved)?.reason : undefined;
-    const ai = tutorReply(mode, query, {
-      lesson: rel?.lesson ?? s.materials[0]?.units[0]?.lessons[0]?.title,
-      errors: s.errors.filter(e => !e.resolved).length, mastery: avg,
-      related: rel, mistake,
-    });
-    setChat([...chat, { me: query, ai, src: rel ? `مصدرك: ${rel.lesson} • إتقان المفهوم ${rel.mastery}%` : 'معرفة عامة — أضف الدرس لدقة أعلى' }]);
-    setQ(''); setHintLvl(0); addXP(set, 2);
+    const open = s.errors.filter(e => !e.resolved);
+    const myErr = rel ? open.find(e => e.conceptId === rel.id) : undefined;
+    const head = lvl === 1
+      ? `📖 شرح مباشر:`
+      : lvl === 2
+        ? `👤 شرح تكيفي (إتقانك ${rel ? `${rel.mastery}% في هذا المفهوم` : `${avg}% عاماً`}${myErr ? ` • خطؤك المسجل: ${myErr.reason}` : ''}):`
+        : `❓ سقراطي — لن أجيب مباشرة:`;
+    let body = '';
+    let grounded = !!rel;
+    if (a === 'check') {
+      const v = checkAns.trim() ? similarity(checkAns, rel?.detail ?? '') : 0;
+      const g = gradeOf(v);
+      setVerdict(rel
+        ? (g === 'correct' ? `✅ صحيح (${Math.round(v * 100)}%) — مطابق لمصدرك.` : g === 'partial' ? `🟡 صحيح جزئياً (${Math.round(v * 100)}%) — قارن إجابتك بالنص: «${rel.detail.slice(0, 120)}…»` : `❌ غير صحيح (${Math.round(v * 100)}%) — النموذجية من مصدرك: «${rel.detail.slice(0, 140)}…»`)
+        : '🔎 سؤالك خارج مصادرك — أضف الدرس لأصحح من مصدرك بدقة.');
+      return;
+    }
+    if (a === 'mistake') {
+      body = myErr ? `🔍 خطؤك في «${rel?.title}»: أجبت «${myErr.userAnswer}» والصحيح «${myErr.correctAnswer}». السبب الجذري: ${myErr.reason}. تكرر ${myErr.count} مرات — عالجه من بنك الأخطاء.`
+        : rel ? `✅ لا أخطاء مسجلة على «${rel.title}» — استمر، والمراجعة المجدولة تحميك.`
+        : open.length ? `🔍 لديك ${open.length} أخطاء مفتوحة، أولها: «${open[0].question.slice(0, 60)}…» — السبب: ${open[0].reason}` : '✅ لا أخطاء مفتوحة — ممتاز.';
+    } else if (a === 'ask') {
+      body = rel ? `❓ سؤالي لك (أجب قبل أن أكمل): ما الفرق الجوهري بين «${rel.title}» وما يشبهه؟ اكتب سطرين.` : '❓ أخبرني أولاً: ما الذي تعرفه عن الموضوع؟ سطر واحد يكفي.';
+    } else if (a === 'hint') {
+      body = rel ? `🔦 تلميح (لا الحل): ركّز على هذه الكلمات من مصدرك: ${rel.detail.split(/\s+/).slice(0, 5).join(' ')}… — حاول خطوة واحدة.` : '🔦 حدد المفهوم أولاً من دروسك وسألمّح لك منه.';
+    } else if (a === 'practice' || a === 'exam') {
+      body = rel ? `🎯 حوّلت «${rel.title}» لجلسة: ${a === 'exam' ? 'مؤقت + ضغط' : 'بلا ضغط'}. اضغط الزر بالأسفل للبدء — الأسئلة من مصدرك.` : '🎯 اختر مفهوماً من دروسك أولاً.';
+    } else if (!rel) {
+      grounded = false;
+      body = `🔎 «${query}» خارج مصادرك المدخلة — إجابتي معرفة عامة [External Knowledge] وليست من مصدرك. أضف الدرس لتصبح إجاباتي من مصدرك بدقة.\n\n${lvl === 3 ? 'سؤال سقراطي: ما الذي يجعلك تظن أن إجابتي صحيحة؟ تحقق من مصدرك.' : 'الفكرة العامة: ابحث عن التعريف والقانون والمثال — ثم أضف الدرس وسأشرحه من مصدرك.'}`;
+    } else if (lvl === 3) {
+      body = `${head}\nمن مصدرك «${rel.lesson}»: «${rel.detail}»\n\n❓ قبل أن أشرح: ما الذي فهمته أنت من هذه الفقرة؟ اكتب سطراً، وسأبني عليه.`;
+    } else if (a === 'teach') {
+      body = `${head}\n① الفكرة بكلمات بسيطة: ${rel.detail}\n② طريقة إتقان هذا النوع: ${rel.kind === 'law' ? 'اكتب المعطى والمطلوب والوحدات قبل التعويض' : rel.kind === 'definition' ? 'احفظ الصياغة ثم افهم كل كلمة' : 'أعد الصياغة بكلماتك'}\n③ الفخ الأشهر: ${myErr ? myErr.reason : 'الخلط مع مفهوم قريب — قارن دائماً'}`;
+    } else {
+      body = `${head}\n${rel.detail}\n\n💡 مثال يقربها: ${rel.kind === 'example' ? rel.detail.slice(0, 100) : 'طبّقها على موقف من يومك وستثبت'}`;
+    }
+    const src = rel ? `Source Used: ${rel.mat} / ${rel.lesson} — الفقرة ${rel.section + 1} • إتقانك ${rel.mastery}% • استرجاعك ${rel.recallStrength}%` : 'بدون مصدر — معرفة عامة';
+    setChat([...chat, { me: query || ACTS.find(x => x.id === a)!.n, ai: body, src, grounded }]);
   };
-  const QUICK = ['اشرح لي: ', 'اختبرني في: ', 'أعطني مثالاً واقعياً عن: ', 'ما خطئي الشائع في: '];
+  const send = () => {
+    const query = q.trim();
+    if (act === 'check') { answer(query || 'تصحيح إجابتي', 'check', level); return; }
+    if (!query && (act === 'practice' || act === 'exam')) { go?.(act === 'exam' ? 'study-tests' : 'study-recall'); return; }
+    if (!query) return;
+    answer(query, act, level);
+    setQ('');
+  };
   return (
     <div>
-      <div className="between mb"><h1>🤖 المعلّم الذكي</h1><Chip on>{concepts.length ? `يعرف ${concepts.length} مفهوماً من دروسك` : 'بانتظار دروسك'}</Chip></div>
-      <div className="tabs">{MODES.map(m => <button key={m.id} className={`chip tab ${mode === m.id ? 'on' : ''}`} onClick={() => setMode(m.id)}>{m.icon} {m.name}</button>)}</div>
+      <div className="between mb"><h1>🤖 المعلّم الذكي</h1><Chip on>{concepts.length ? `يعرف ${concepts.length} مفهوماً من مصادرك` : 'بانتظار مصادرك'}</Chip></div>
+      <div className="small mut mb">يجيب أولاً من مصدرك، ويعرض المصدر المستخدم دائماً. خارج المصدر = [External Knowledge] معلن.</div>
+      <label className="lbl">المستوى</label>
+      <div className="wrap mb">
+        <Chip on={level === 1} onClick={() => setLevel(1)}>1️⃣ شرح مباشر</Chip>
+        <Chip on={level === 2} onClick={() => setLevel(2)}>2️⃣ تكيفي (أخطاؤك)</Chip>
+        <Chip on={level === 3} onClick={() => setLevel(3)}>3️⃣ سقراطي</Chip>
+      </div>
+      <div className="tabs">{ACTS.map(m => <button key={m.id} className={`chip tab ${act === m.id ? 'on' : ''}`} onClick={() => { setAct(m.id); setVerdict(null); }}>{m.icon} {m.n}</button>)}</div>
+      {act === 'check' && (
+        <Glass level={2} className="mb"><label className="lbl">الصق إجابتك لأصححها من مصدرك</label>
+          <textarea placeholder="إجابتك هنا…" value={checkAns} onChange={e => setCheckAns(e.target.value)} />
+          {verdict && <div className="small mt pop">{verdict}</div>}</Glass>
+      )}
       {!chat.length && (
-        <Glass level={2} className="mb"><div className="small">👨‍🏫 أنا معلّمك الخاص — أجيب من <b>دروسك أنت</b> عند تطابق السؤال، وأحذّرك من <b>أخطائك المسجلة</b>، وأتكيف مع مستواك ({avg}%). جرّب:</div>
-          <div className="wrap mt">{QUICK.map(x => <Chip key={x} onClick={() => setQ(x)}>{x}</Chip>)}</div></Glass>
+        <Glass level={2} className="mb"><div className="small">اسأل عن أي درس مرفوع — سأطابقه مع مصدرك وأعرض <b>Source Used</b>. جرّب وضع «أين خطئي؟» أو «اسألني».</div></Glass>
       )}
       <div style={{ display: 'grid', gap: 10 }}>
         {chat.map((c, i) => (
           <div key={i}>
             <div className="row" style={{ justifyContent: 'flex-end' }}><div className="glass pad" style={{ maxWidth: '85%', background: 'linear-gradient(135deg,rgba(34,211,238,.18),rgba(167,139,250,.18))' }}><div className="small">{c.me}</div></div></div>
             <div className="row mt" style={{ alignItems: 'flex-start' }}><GraduationCap size={16} color="#a78bfa" />
-              <div style={{ flex: 1 }}><Glass><div className="small" style={{ whiteSpace: 'pre-line' }}>{c.ai[Math.min(hintLvl, c.ai.length - 1)] ?? c.ai[0]}</div>
-                <div className="tiny mut mt">📚 {c.src}</div></Glass>
-                {i === chat.length - 1 && c.ai.length > 1 && (
-                  <div className="wrap mt"><Btn sm onClick={() => setHintLvl(h => Math.min(h + 1, 3))}>المستوى التالي: {['تلميح 💡', 'خطوة أولى 👣', 'شرح 📖', 'حل كامل ✅'][Math.min(hintLvl + 1, 3)]}</Btn></div>)}
-              </div></div>
+              <div style={{ flex: 1 }}><Glass>
+                <div className="small" style={{ whiteSpace: 'pre-line' }}>{c.ai}</div>
+                <div className="tiny mt" style={{ color: c.grounded ? '#34d399' : '#fbbf24' }}>📚 {c.src}</div>
+              </Glass></div></div>
           </div>
         ))}
       </div>
-      <div className="row mt"><input placeholder="اسأل المعلم… (يطابق سؤالك مع دروسك تلقائياً)" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} />
-        <Btn kind="pri" onClick={() => send()}><Send size={14} /></Btn></div>
-      <div className="tiny mut mt">🔒 الثقة: المعلّم يوضح مصدر كل إجابة (مادتك أم معرفة عامة) ولا يقدّم غير المؤكد كحقيقة.</div>
+      <div className="row mt"><input placeholder="اسأل عن درس مرفوع… (يطابق مصادرك تلقائياً)" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} />
+        <Btn kind="pri" onClick={send}><Send size={14} /></Btn></div>
+      <div className="tiny mut mt">🔒 خارج المصدر يُوسم [External Knowledge] — لا يُقدَّم كحقيقة من مصدرك أبداً.</div>
     </div>
   );
 }
@@ -76,7 +127,7 @@ export function Coach() {
   const [showErrors, setShowErrors] = useState(false);
   const adv = coachAdvices(s);
   const runAct = (act: 'night' | 'review3') => {
-    if (act === 'night') { set(p => ({ ...p, nightMode: true })); addXP(set, 5); return; }
+    if (act === 'night') { set(p => ({ ...p, nightMode: true })); return; }
     const top = forgettingQueue(s).slice(0, 3);
     const t = new Date().toISOString().slice(0, 10);
     set(p => ({
@@ -88,7 +139,6 @@ export function Coach() {
         date: t, mins: 15, kind: 'review' as const, done: false, priority: 1 as const,
       }))],
     }));
-    addXP(set, 10);
   };
   return (
     <div>

@@ -102,16 +102,28 @@ export const Radar = ({ axes }: { axes: { label: string; v: number }[] }) => {
   );
 };
 
-export const MindView = ({ node, depth = 0 }: { node: { label: string; children: { label: string; children: never[] }[] | { label: string; children: { label: string; children: never[] }[] }[] }; depth?: number }) => (
-  <div>
-    <div className={`mnode ${depth === 0 ? 'root' : ''}`}>{node.label}</div>
-    {(node.children as { label: string; children: never[] }[]).length > 0 && (
-      <div className="mkids">
-        {(node.children as { label: string; children: never[] }[]).map((k, i) => <MindView key={i} node={k as never} depth={depth + 1} />)}
-      </div>
-    )}
-  </div>
-);
+export const MindView = ({ node, depth = 0, onSelect }: {
+  node: { label: string; conceptId?: string; children: { label: string; conceptId?: string; children: never[] }[] | { label: string; conceptId?: string; children: { label: string; conceptId?: string; children: never[] }[] }[] };
+  depth?: number; onSelect?: (conceptId: string) => void;
+}) => {
+  const kids = node.children as { label: string; conceptId?: string; children: never[] }[];
+  const clickable = !!node.conceptId && !!onSelect && depth > 0;
+  return (
+    <div>
+      {clickable ? (
+        <button className={`mnode ${depth === 0 ? 'root' : ''}`} style={{ cursor: 'pointer', fontFamily: 'inherit', color: 'inherit', width: '100%', textAlign: 'start' }}
+          onClick={() => node.conceptId && onSelect(node.conceptId)}>{node.label} ‹</button>
+      ) : (
+        <div className={`mnode ${depth === 0 ? 'root' : ''}`}>{node.label}</div>
+      )}
+      {kids.length > 0 && (
+        <div className="mkids">
+          {kids.map((k, i) => <MindView key={i} node={k as never} depth={depth + 1} onSelect={onSelect} />)}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export function useSheet() {
   const [open, setOpen] = useState<string | null>(null);

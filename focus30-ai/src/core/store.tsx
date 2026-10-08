@@ -59,12 +59,66 @@ export function Store({ children }: { children: React.ReactNode }) {
         if (!Array.isArray(p.blackouts)) p.blackouts = [];
         if (!Array.isArray(p.diagrams)) p.diagrams = [];
         if (Array.isArray(p.exams)) p.exams = p.exams.map(x => ({ attachments: [], ...x }));
+        // ترحيل الحقول الجديدة للبيانات القديمة (بدون فقدان)
+        for (const m of p.materials ?? []) for (const u of m.units ?? []) for (const l of u.lessons ?? []) {
+          if (!Array.isArray(l.sections)) l.sections = (l.sourceText ?? '').split(/[\n]+/).map(s => s.trim()).filter(Boolean);
+          if (!Array.isArray(l.elements)) l.elements = [];
+          for (const [ci, c] of (l.concepts ?? []).entries()) {
+            if (c.recallStrength === undefined) c.recallStrength = Math.max(10, (c.mastery ?? 20) - 10);
+            if (!Array.isArray(c.prereqs)) c.prereqs = ci > 0 ? [l.concepts[ci - 1].id] : [];
+            if (!Array.isArray(c.related)) c.related = [];
+            if (c.section === undefined) c.section = ci;
+          }
+        }
+        for (const q of p.recallBank ?? []) {
+          if (!q.sourceLessonId) {
+            const hit = (p.materials ?? []).flatMap(m => m.units ?? []).flatMap(u => u.lessons ?? [])
+              .find(l => (l.concepts ?? []).some(c => c.id === q.conceptId));
+            q.sourceLessonId = hit?.id ?? '';
+            q.sourceRef = q.sourceRef || hit?.sourceRef || '';
+            q.section = q.section ?? 0;
+            q.difficulty = q.difficulty ?? 2;
+            q.origin = q.origin ?? 'source';
+            q.focus = q.focus ?? 'general';
+            q.level = q.level ?? 2;
+          }
+        }
+        for (const f of p.flashcards ?? []) {
+          if (!f.sourceLessonId) {
+            const hit = (p.materials ?? []).flatMap(m => m.units ?? []).flatMap(u => u.lessons ?? [])
+              .find(l => (l.concepts ?? []).some(c => c.id === f.conceptId));
+            f.sourceLessonId = hit?.id ?? '';
+            f.sourceRef = f.sourceRef || hit?.sourceRef || '';
+          }
+        }
+        for (const a of p.attempts ?? []) {
+          if (!a.grade) a.grade = a.correct ? 'correct' : 'incorrect';
+        }
         return p;
       }
     } catch { /* fresh */ }
     return seed();
   });
-  useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ } }, [s]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(s));
+    } catch {
+      // امتلاء التخزين (صور كبيرة): احفظ كل شيء ما عدا معاينات الصور — المحتوى لا يضيع أبداً
+      try {
+        const stripped: AppState = {
+          ...s,
+          materials: s.materials.map(m => ({
+            ...m, units: m.units.map(u => ({
+              ...u, lessons: u.lessons.map(l => ({
+                ...l, attachments: (l.attachments ?? []).map(a => ({ name: a.name })),
+              })),
+            })),
+          })),
+        };
+        localStorage.setItem(KEY, JSON.stringify(stripped));
+      } catch { /* ignore */ }
+    }
+  }, [s]);
   const set = (f: (p: AppState) => AppState) => setS(p => f(p));
   const v = useMemo(() => ({ s, set }), [s]);
   return <Ctx.Provider value={v}>{children}</Ctx.Provider>;

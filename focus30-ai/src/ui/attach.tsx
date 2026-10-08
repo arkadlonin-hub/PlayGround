@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react';
-import { Camera, FileText, Image, Mic, Presentation, Video, X } from 'lucide-react';
+import { Camera, FileText, Image as ImgIcon, Mic, Presentation, Video, X } from 'lucide-react';
 import { Sheet } from './kit';
 
 export interface AttFile { name: string; size: string; preview?: string }
 export const fmtSize = (b: number) =>
   b > 1048576 ? `${(b / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(b / 1024))}KB`;
 
-/** قراءة الملفات: النصوص تُستخرج، الصور تُعاين — كل ذلك داخل تصميم التطبيق */
+/** قراءة الملفات: النصوص تُستخرج، الصور تُعاين (مضغوطة لتناسب التخزين) — كل ذلك داخل تصميم التطبيق */
 export async function collectFiles(fl: FileList, appendText: (t: string) => void): Promise<AttFile[]> {
   const out: AttFile[] = [];
   for (const f of Array.from(fl)) {
@@ -15,16 +15,39 @@ export async function collectFiles(fl: FileList, appendText: (t: string) => void
     }
     let preview: string | undefined;
     if (f.type.startsWith('image/')) {
-      preview = await new Promise<string | undefined>(res => {
+      const raw: string | undefined = await new Promise(res => {
         const r = new FileReader();
         r.onload = () => res(String(r.result ?? ''));
         r.onerror = () => res(undefined);
         r.readAsDataURL(f);
       });
+      preview = raw ? await downscale(raw) : undefined;
     }
     out.push({ name: f.name, size: fmtSize(f.size), preview });
   }
   return out;
+}
+
+/** تصغير الصورة (800px, JPEG 70%) حتى تُحفظ داخل الدرس دون كسر التخزين */
+function downscale(dataUrl: string, max = 800): Promise<string> {
+  return new Promise(res => {
+    const img = new globalThis.Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || max, h = img.naturalHeight || max;
+        const k = Math.min(1, max / Math.max(w, h));
+        if (k >= 1) { res(dataUrl); return; }
+        const c = document.createElement('canvas');
+        c.width = Math.round(w * k); c.height = Math.round(h * k);
+        const ctx = c.getContext('2d');
+        if (!ctx) { res(dataUrl); return; }
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL('image/jpeg', 0.7));
+      } catch { res(dataUrl); }
+    };
+    img.onerror = () => res(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 export interface AttachOption { icon: React.ReactNode; label: string; accept: string; capture: boolean; type: string }
@@ -33,7 +56,7 @@ export interface AttachOption { icon: React.ReactNode; label: string; accept: st
 export function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (o: AttachOption) => void }) {
   const opts: AttachOption[] = [
     { icon: <Camera size={18} />, label: 'تصوير بالكاميرا', accept: 'image/*', capture: true, type: 'صورة كتاب' },
-    { icon: <Image size={18} />, label: 'صورة من المعرض', accept: 'image/*', capture: false, type: 'صورة كتاب' },
+    { icon: <ImgIcon size={18} />, label: 'صورة من المعرض', accept: 'image/*', capture: false, type: 'صورة كتاب' },
     { icon: <Presentation size={18} />, label: 'صورة سبورة / لوح', accept: 'image/*', capture: true, type: 'سبورة' },
     { icon: <FileText size={18} />, label: 'ملف PDF / نصي', accept: '.pdf,.txt,.md', capture: false, type: 'PDF' },
     { icon: <Video size={18} />, label: 'فيديو', accept: 'video/*', capture: false, type: 'فيديو' },

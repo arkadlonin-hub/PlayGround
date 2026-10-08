@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Home as HomeIcon, CalendarDays, BookOpen, Sparkles, BarChart3, Languages, Moon, Sun } from 'lucide-react';
 import { Store, useStore } from './core/store';
 import { str } from './core/i18n';
-import { Home, Today, WeeklySchedule, Plan30, Simulator, NightMode, City, Countdown } from './features/home';
+import { Home, Today, WeeklySchedule, Plan30, Simulator, NightMode, City, Countdown, NotifBell } from './features/home';
 import { Materials, Recall, Cards, Tests, Archive, Sources } from './features/study';
 import { Tutor, Coach, Examples, Stories, Predictor, Weakness, AIAssistant } from './features/ai';
 import { Stats } from './features/stats';
@@ -46,6 +46,7 @@ function Shell() {
       <div className="blobs"><i /><i /></div>
       <div className="app">
         <div className="row mb" style={{ justifyContent: 'flex-end', gap: 8 }}>
+          <NotifBell />
           <button className="chip" onClick={() => set(p => ({ ...p, lang: p.lang === 'ar' ? 'en' : 'ar' }))}>
             <Languages size={13} /> {s.lang === 'ar' ? 'EN' : 'عربي'}</button>
           <button className="chip" onClick={() => set(p => ({ ...p, nightMode: !p.nightMode }))}>
@@ -65,7 +66,7 @@ function Shell() {
         {main === 'study-archive' && <><SubTabs tabs={STUDY_TABS} cur={main} go={go} lang={s.lang} /><Archive /></>}
         {main === 'study-sources' && <><SubTabs tabs={STUDY_TABS} cur={main} go={go} lang={s.lang} /><Sources /></>}
 
-        {main === 'ai-tutor' && <><SubTabs tabs={AI_TABS} cur={main} go={go} lang={s.lang} /><Tutor /></>}
+        {main === 'ai-tutor' && <><SubTabs tabs={AI_TABS} cur={main} go={go} lang={s.lang} /><Tutor go={go} /></>}
         {main === 'ai-coach' && <><SubTabs tabs={AI_TABS} cur={main} go={go} lang={s.lang} /><Coach /></>}
         {main === 'ai-examples' && <><SubTabs tabs={AI_TABS} cur={main} go={go} lang={s.lang} /><Examples /></>}
         {main === 'ai-stories' && <><SubTabs tabs={AI_TABS} cur={main} go={go} lang={s.lang} /><Stories /></>}

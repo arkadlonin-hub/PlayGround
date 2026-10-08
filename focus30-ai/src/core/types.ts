@@ -11,6 +11,7 @@ export interface Concept {
   id: ID; lessonId: ID; title: string; detail: string;
   kind: ConceptKind; needsMemorize: boolean; examWeight: 1 | 2 | 3;
   mastery: number; // 0..100
+  recallStrength: number; // 0..100 قوة الاسترجاع
   stability: number; // days of memory stability (FSRS-lite)
   difficulty: number; // 1..5
   confidence: number; // 1..5 self-reported
@@ -19,20 +20,37 @@ export interface Concept {
   lastReview: string | null; nextReview: string;
   forgetRisk: number; // 0..1
   sourceRef: string;
+  section: number; // رقم الفقرة داخل المصدر (للاستشهاد)
+  prereqs: ID[]; // مفاهيم يعتمد عليها (Knowledge Graph)
+  related: ID[]; // مفاهيم مرتبطة
+}
+
+export interface LessonAttachment { name: string; preview?: string }
+
+export type ElementKind = 'formula' | 'definition' | 'fact' | 'list' | 'relationship' | 'sequence' | 'diagram';
+export interface ContentElement {
+  id: ID; lessonId: ID; kind: ElementKind;
+  text: string; label: string; section: number;
+  vars?: { sym: string; meaning?: string }[];
+  units?: string[]; numbers?: string[];
+  steps?: string[]; items?: string[];
 }
 
 export interface Lesson {
   id: ID; unitId: ID; title: string;
   sourceText: string; sourceRef: string;
+  sections: string[]; // فقرات المصدر (للاستشهاد: الصورة 2 — الفقرة 4)
   concepts: Concept[];
+  elements?: ContentElement[]; // العناصر المستخرجة من المصدر (للتوليد المبني على المحتوى)
   summary: string; mindmap: MindNode;
   mastery: number;
+  attachments?: LessonAttachment[];
 }
 
 export interface Unit { id: ID; materialId: ID; title: string; lessons: Lesson[]; mastery: number }
 export interface Material { id: ID; name: string; color: string; icon: string; units: Unit[]; mastery: number; minutes: number }
 
-export interface MindNode { label: string; children: MindNode[]; color?: string }
+export interface MindNode { label: string; children: MindNode[]; color?: string; conceptId?: ID }
 
 export interface StudyPack {
   lessonId: ID; summary: string; notes: string[];
@@ -41,25 +59,33 @@ export interface StudyPack {
   mindmap: MindNode; weakSpots: string[]; reviewPlan: string[]; tasks: string[];
 }
 
-export type RecallKind = 'qa' | 'mcq' | 'tf' | 'fill' | 'why' | 'explain' | 'compare' | 'apply' | 'solve' | 'link';
+export type RecallKind = 'qa' | 'mcq' | 'tf' | 'fill' | 'why' | 'explain' | 'compare' | 'apply' | 'solve' | 'link' | 'cause' | 'sequence' | 'definition';
+export type QOrigin = 'source' | 'external' | 'exam-pattern';
+export type QFocus = 'formula' | 'definition' | 'fact' | 'list' | 'relation' | 'sequence' | 'diagram' | 'general';
 export interface RecallQ {
   id: ID; conceptId: ID; kind: RecallKind; prompt: string;
-  choices?: string[]; answer: string; hint: string;
+  choices?: string[]; answer: string; hint: string; image?: string;
+  sourceLessonId: ID; sourceRef: string; section: number;
+  difficulty: 1 | 2 | 3; origin: QOrigin;
+  elementId?: ID; focus?: QFocus; level?: 1 | 2 | 3 | 4 | 5; excerpt?: string;
 }
 
-export type CardKind = 'qa' | 'cloze' | 'image' | 'occlusion' | 'map' | 'formula' | 'draw';
+export type CardKind = 'qa' | 'cloze' | 'image' | 'occlusion' | 'map' | 'formula' | 'draw' | 'definition' | 'relation';
 export interface Flashcard {
-  id: ID; conceptId: ID; kind: CardKind; front: string; back: string;
+  id: ID; conceptId: ID; kind: CardKind; front: string; back: string; image?: string;
+  sourceLessonId: ID; sourceRef: string;
   ease: number; interval: number; due: string; reps: number; lapses: number;
 }
 
+export type Grade = 'correct' | 'partial' | 'incorrect';
 export interface Attempt {
   id: ID; date: string; conceptId: ID; kind: string;
-  correct: boolean; timeMs: number; confidence: 1 | 2 | 3 | 4 | 5;
+  correct: boolean; grade: Grade; errorType?: string; sourceLessonId?: ID;
+  timeMs: number; confidence: 1 | 2 | 3 | 4 | 5;
 }
 
 export interface ErrorEntry {
-  id: ID; date: string; conceptId: ID;
+  id: ID; date: string; conceptId: ID; sourceLessonId?: ID;
   question: string; userAnswer: string; correctAnswer: string;
   reason: string; count: number; lastReview: string | null; resolved: boolean;
 }
@@ -80,7 +106,7 @@ export interface PlanDay { day: number; date: string; taskIds: string[]; note: s
 export interface ExamPaper {
   id: ID; title: string; materialId: ID; date: string;
   rawText: string; attachments?: string[];
-  analysis: { types: string[]; topics: string[]; hotConcepts: string[]; difficulty: string; pattern: string; distribution: { label: string; pct: number }[] };
+  analysis: { types: string[]; topics: string[]; hotConcepts: string[]; difficulty: string; pattern: string; distribution: { label: string; pct: number }[]; detected?: { text: string; type: string; topic: string; difficulty: string }[] };
 }
 
 export interface CityB { id: string; name: string; level: number; unlocked: boolean; reason: string }

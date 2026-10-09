@@ -6,10 +6,29 @@ export interface AttFile { name: string; size: string; preview?: string }
 export const fmtSize = (b: number) =>
   b > 1048576 ? `${(b / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(b / 1024))}KB`;
 
-/** قراءة الملفات: النصوص تُستخرج، الصور تُعاين (مضغوطة لتناسب التخزين) — كل ذلك داخل تصميم التطبيق */
-export async function collectFiles(fl: FileList, appendText: (t: string) => void): Promise<AttFile[]> {
+/** قراءة الملفات: PDF/nصوص تُستخرج محلياً، الصور تُعاين (مضغوطة) — كل ذلك داخل تصميم التطبيق */
+export async function collectFiles(
+  fl: FileList,
+  appendText: (t: string) => void,
+  onPdf?: (msg: string) => void,
+): Promise<AttFile[]> {
   const out: AttFile[] = [];
   for (const f of Array.from(fl)) {
+    if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+      try {
+        onPdf?.(`📄 قراءة ${f.name} محلياً…`);
+        const { extractPdf, pdfToText } = await import('../core/pdf');
+        const r = await extractPdf(f, p => onPdf?.(`📄 قراءة ${f.name}… ${p}%`));
+        if ('pages' in r) {
+          appendText(pdfToText(r.pages));
+          onPdf?.(`✅ استُخرج ${r.pages.length} صفحات من ${f.name} — راجع النص قبل التحليل.`);
+        } else {
+          onPdf?.(`⚠️ ${f.name}: ${r.error}`);
+        }
+      } catch { onPdf?.(`⚠️ تعذّرت قراءة ${f.name} — الصق النص يدوياً.`); }
+      out.push({ name: f.name, size: fmtSize(f.size) });
+      continue;
+    }
     if (f.type.startsWith('text/') || /\.(txt|md)$/i.test(f.name)) {
       try { const txt = await f.text(); if (txt.trim()) appendText(txt); } catch { /* ignore */ }
     }

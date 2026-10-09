@@ -687,16 +687,35 @@ const UNIT_RE = /(م\/ث|كم\/س|م\/ث²|نيوتن|جول|واط|كجم|مت�
 const NUM_RE = /(\d+[.,]?\d*)\s*(م\/ث|كم\/س|م|س|ث|كجم|نيوتن|جول|m\/s|kg|N|J|s\b|m\b)?/g;
 
 /** استخراج العناصر الفعلية من نص المصدر: قوانين، تعاريف، حقائق، قوائم، علاقات، تسلسلات */
+/** تنظيف طرفي المعادلة: يسقط الشرح العربي السابق ويوقف ابتلاع بقية الجملة — الأصل محفوظ في النص */
+function cleanLhs(raw: string): string {
+  let s = raw.split(/[:：]/).pop()!.trim();
+  const toks = s.split(/\s+/).filter(Boolean);
+  // يسقط الكلمات العربية التمهيدية (حل، على، الصورة…) ويُبقي الرموز المفردة (ق، ك)
+  while (toks.length > 1 && /^[\u0600-\u06FF]+$/.test(toks[0])) toks.shift();
+  s = toks.join(' ').trim();
+  return s.length >= 1 && s.length <= 30 ? s : '';
+}
+function cleanRhs(raw: string): string {
+  let s = raw.trim();
+  // حد عربي آمن (‎\b لا يعمل مع العربية): كلمات تفسيرية تليها مسافة/ترقيم فقط
+  const cut = s.search(/\s+(?:حيث|مثل|يعني|لأن|عندما|إذا)(?=[\s.,؛:\)\]]|$)/);
+  if (cut > 0) s = s.slice(0, cut).trim();
+  if (!s || s.length > 60) return '';
+  return s;
+}
+
 export function extractElements(text: string, lessonId: string): import('./types').ContentElement[] {
   const els: import('./types').ContentElement[] = [];
   const sentences = splitSentences(text);
   sentences.forEach((s, si) => {
-    // FORMULA: X = sym (op sym)+ — تتوقف عند الكلمات (لا تبتلع الجملة)
-    const fm = s.match(/([A-Za-z\u0600-\u06FF])\s*=\s*([A-Za-z\u0600-\u06FF0-9]\s*(?:[×xX\*\/÷+\-^]\s*[A-Za-z\u0600-\u06FF0-9]+)+)/);
+    // FORMULA: أي طرفين حول = مع تنظيف الشرح — يقبل الأرقام واليونانية (Δ) والطرف البسيط (c = 0)
+    const fm = s.match(/(.{1,40}?)\s*=\s*(.+?)(?=(?:\sو[\u0600-\u06FFA-Za-z]+\s*:)|[.!؟?؛,،]|$)/);
     if (fm) {
-      const lhs = fm[1].trim();
-      const rhs = fm[2].trim();
-      const syms = [...new Set([...rhs.matchAll(/([A-Za-z\u0600-\u06FF])/g)].map(m => m[1]).concat([lhs]))];
+      const lhs = cleanLhs(fm[1]);
+      const rhs = cleanRhs(fm[2]);
+      if (lhs && rhs) {
+        const syms = [...new Set([...`${lhs} ${rhs}`.matchAll(/([A-Za-z\u0600-\u06FF\u0370-\u03FF])/g)].map(m => m[1]))];
       const units = [...new Set([...s.matchAll(UNIT_RE)].map(m => m[1] ?? m[0]))];
       const numbers = [...s.matchAll(NUM_RE)].map(m => m[0].trim()).filter(n => /\d/.test(n));
       // معاني الرموز: "حيث v السرعة" / "m ترمز للكتلة" / "الكتلة (m)" — بلا عبور لحرف العطف
@@ -719,12 +738,18 @@ export function extractElements(text: string, lessonId: string): import('./types
         vars, units, numbers, items: [lhs, rhs, op, parts.join('|')],
       });
       return;
+      }
     }
     // DEFINITION
     const dm = s.match(/تعريف\s+([\u0600-\u06FFa-zA-Z ]{2,30})[:：]/) || s.match(/([\u0600-\u06FFa-zA-Z ]{2,25})\s+(?:هو|هي)\s+(.{10,120})/);
     if (/تعريف|يُعرَّف|يُعرف|مفهوم/.test(s) || (dm && s.length > 15)) {
       const term = dm ? dm[1].trim() : s.slice(0, 30);
       els.push({ id: uid('el'), lessonId, kind: 'definition', text: s, label: term, section: si });
+      return;
+    }
+    // EXAMPLE — أمثلة المصدر عنصر مستقل (كانت تسقط بصمت)
+    if (/مثال|مثل|على سبيل المثال/.test(s)) {
+      els.push({ id: uid('el'), lessonId, kind: 'example', text: s, label: s.slice(0, 40), section: si });
       return;
     }
     // LIST
@@ -813,9 +838,11 @@ export function generateFromElements(
     if (el.kind === 'formula') {
       const [lhs, , op] = [el.items?.[0] ?? '', el.items?.[1] ?? '', el.items?.[2] ?? ''];
       const rhsVars = (el.items?.[3] ?? '').split('|').map(v => v.trim()).filter(v => v.length <= 3);
+      // بوابة الجودة: بلا متغيرات حقيقية في الطرف الأيمن → أسئلة استرجاع مباشر فقط (لا "يربط 0؟")
+      const hasVars = rhsVars.some(v => /[A-Za-z\u0600-\u06FF\u0370-\u03FF]/.test(v));
       const name = el.vars?.[0]?.meaning ? `${el.vars[0].meaning} (${lhs})` : `الرمز ${lhs}`;
-      out.push(mk(el, 'qa', `ما القانون الذي يربط ${rhsVars.join(' و ') || 'الكميات'}؟`, el.text, 1, 'formula'));
-      out.push(mk(el, 'fill', `أكمل من المصدر: ${lhs} = ${rhsVars.map(() => '___').join(` ${op || '×'} `)}`, el.text, 1, 'formula'));
+      out.push(mk(el, 'qa', hasVars ? `ما القانون الذي يربط ${rhsVars.join(' و ')}؟` : `ما القانون المذكور لـ${lhs}؟`, el.text, 1, 'formula'));
+      out.push(mk(el, 'fill', `أكمل من المصدر: ${lhs} = ${(hasVars ? rhsVars : [el.items?.[1] ?? '…']).map(() => '___').join(` ${op || '×'} `)}`, el.text, 1, 'formula'));
       const named = (el.vars ?? []).filter(v => v.meaning);
       for (const v of named.slice(0, 3)) {
         out.push(mk(el, 'qa', `ماذا يمثل الرمز ${v.sym} في القانون؟`, `${v.sym} يمثل: ${v.meaning} (من المصدر: «${el.text.slice(0, 80)}…»)`, 1, 'formula'));
@@ -848,6 +875,9 @@ export function generateFromElements(
       const blank = el.text.length > 30 ? `أكمل التعريف: ${el.text.slice(0, Math.floor(el.text.length / 2))} ……` : `أكمل: ${el.label} هو ……`;
       out.push(mk(el, 'fill', blank, el.text, 1, 'definition'));
       out.push(mk(el, 'mcq', `اختر التعريف الصحيح لـ«${el.label}»:`, el.text, 2, 'definition', 'source', [el.text.slice(0, 70), ...otherTexts(elements, el, 2)]));
+    } else if (el.kind === 'example') {
+      out.push(mk(el, 'apply', `ماذا يوضح هذا المثال من مصدرك؟ «${el.text.slice(0, 70)}…»`, el.text, 2, 'example'));
+      out.push(mk(el, 'explain', `اشرح المثال بكلماتك: «${el.text.slice(0, 70)}…»`, el.text, 2, 'example'));
     } else if (el.kind === 'fact') {
       const core = el.text.length > 70 ? el.text.slice(0, 70) + '…' : el.text;
       out.push(mk(el, 'fill', `أكمل العبارة المذكورة: ${el.text.slice(0, Math.max(20, Math.floor(el.text.length / 2)))} ……`, el.text, 1, 'fact'));
@@ -878,7 +908,7 @@ export function generateFromElements(
 export function coverageOf(
   elements: import('./types').ContentElement[], bank: RecallQ[],
 ): { perFocus: { k: string; n: number; q: number }[]; pct: number; total: number; covered: number } {
-  const names: Record<string, string> = { formula: 'القوانين', definition: 'التعاريف', fact: 'الحقائق', list: 'القوائم', relation: 'العلاقات', sequence: 'التسلسلات', diagram: 'المخططات' };
+  const names: Record<string, string> = { formula: 'القوانين', definition: 'التعاريف', fact: 'الحقائق', list: 'القوائم', relation: 'العلاقات', sequence: 'التسلسلات', diagram: 'المخططات', example: 'الأمثلة' };
   const kinds = [...new Set(elements.map(e => e.kind))];
   const perFocus = kinds.map(k => {
     const els = elements.filter(e => e.kind === k);
@@ -891,6 +921,6 @@ export function coverageOf(
 
 /** سطر التتبع المعروض تحت السؤال */
 export function traceOf(q: RecallQ, lessonTitle: string): string {
-  const kind = q.focus === 'formula' ? 'المعادلة' : q.focus === 'definition' ? 'التعريف' : q.focus === 'diagram' ? 'المخطط' : 'الفقرة';
+  const kind = q.focus === 'formula' ? 'المعادلة' : q.focus === 'definition' ? 'التعريف' : q.focus === 'diagram' ? 'المخطط' : q.focus === 'example' ? 'المثال' : 'الفقرة';
   return `${lessonTitle} • ${kind}: الفقرة ${q.section + 1}${q.excerpt ? ` • «${q.excerpt.slice(0, 60)}…»` : ''}`;
 }

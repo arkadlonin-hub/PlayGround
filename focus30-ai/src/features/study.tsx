@@ -8,6 +8,7 @@ import { adaptiveLevel, chooseNext, runIngest } from '../core/brain';
 function lessonMeta0(id: string, title: string, sourceRef: string) { return { id, title, sourceRef }; }
 import { Bar, Btn, Chip, Glass, MasteryDot, MindView, Modal, PickSheet, Ring, Sheet } from '../ui/kit';
 import { AttachSheet, AttList, collectFiles, useFilePicker, type AttachOption, type AttFile } from '../ui/attach';
+import { AutoMath, MathTex } from '../ui/math';
 
 export function EmptyContent({ what, hint }: { what: string; hint: string }) {
   return (
@@ -20,6 +21,28 @@ export function EmptyContent({ what, hint }: { what: string; hint: string }) {
         <div>✨ وسيولّد AI {what} من محتواك أنت فقط</div>
       </div>
       <div className="tiny mut mt">لا نعرض أي سؤال جاهز أو وهمي — كل شيء من دروسك الحقيقية.</div>
+    </Glass>
+  );
+}
+
+/** دروس بصور بلا محتوى مستخرج بعد — تظهر هنا بدل رسالة "أضف محتوى" المضللة */
+export function PendingLessons({ go }: { go?: (t: string) => void }) {
+  const { s } = useStore();
+  const pend = s.materials.flatMap(m => m.units.flatMap(u => u.lessons
+    .filter(l => !l.concepts.length && (l.attachments ?? []).some(a => a.preview))
+    .map(l => ({ ...l, mat: m.name }))));
+  if (!pend.length) return null;
+  return (
+    <Glass level={2} className="mt glow-cyan">
+      <h3>📷 دروس بصور بانتظار الاستخراج ({pend.length})</h3>
+      <div className="small mut">صورها محفوظة لكن نصها غير مستخرج بعد — لهذا لا تظهر أسئلتها هنا. افتح الدرس من تبويب المواد واضغط «استخراج النص من صور الدرس» وستتولد أسئلته وبطاقاته وخرائطه من محتواه نفسه.</div>
+      <div className="mt" style={{ display: 'grid', gap: 6 }}>
+        {pend.map(l => (
+          <div key={l.id} className="task"><div style={{ flex: 1 }}><div className="small" style={{ fontWeight: 600 }}>{l.title}</div>
+            <div className="tiny mut">{l.mat} • {(l.attachments ?? []).length} صور • بلا أسئلة بعد</div></div>
+            {go && <Btn sm kind="pri" onClick={() => go('study-materials')}>افتح المواد 📚</Btn>}</div>
+        ))}
+      </div>
     </Glass>
   );
 }
@@ -47,7 +70,7 @@ export function Materials({ go }: { go: (t: string) => void }) {
   const [files, setFiles] = useState<AttFile[]>([]);
   const filePicker = useFilePicker(fl => {
     if (!fl) return;
-    collectFiles(fl, t => setText(prev => (prev ? prev + '\n' : '') + t)).then(fs => setFiles(prev => [...prev, ...fs]));
+    collectFiles(fl, t => setText(prev => (prev ? prev + '\n' : '') + t), m => setOcrMsg(m)).then(fs => setFiles(prev => [...prev, ...fs]));
   });
   const lesson: Lesson | undefined = useMemo(() => {
     for (const m of s.materials) for (const u of m.units) { const l = u.lessons.find(x => x.id === sel); if (l) return l; }
@@ -105,71 +128,84 @@ export function Materials({ go }: { go: (t: string) => void }) {
     }));
   };
 
-  const addContent = () => {
-    const hasText = text.trim().length >= 4;
+  const addContent = async () => {
     const hasFiles = files.length > 0;
     const hasLink = linkUrl.trim().length > 0;
-    if ((!hasText && !hasFiles && !hasLink) || !matPick) return;
+    if ((!text.trim() && !hasFiles && !hasLink) || !matPick || ocrBusy) return;
     const targetMat = s.materials.find(m => m.id === matPick);
     if (!targetMat) return;
+    // خطوة 1: إن وُجدت صور بلا نص كافٍ — استخرج النص أولاً تلقائياً بنفس الضغطة
+    let fullText = text.trim();
+    const shots = files.filter(f => f.preview);
+    if (shots.length && fullText.length < 12) {
+      setOcrBusy(true); setOcrPct(2); setOcrMsg('🔍 الخطوة 1/2: قراءة الصور واستخراج نص الدرس نفسه…');
+      try {
+        const mod = await import('../core/ocr');
+        const parts: string[] = [];
+        for (let k = 0; k < shots.length; k++) {
+          setOcrPct(Math.round(5 + (85 * k) / shots.length));
+          const r = await mod.ocrImage(shots[k].preview!, p => setOcrPct(Math.round(5 + (85 * k + p * 0.85) / shots.length)));
+          if ('text' in r && r.text.trim()) parts.push(r.text);
+        }
+        if (parts.length) {
+          fullText = (fullText ? fullText + '\n' : '') + parts.join('\n');
+          setText(fullText);
+          setOcrMsg(`✅ الخطوة 1/2 تمت: استُخرج النص من ${parts.length} صور — الخطوة 2/2: تحليل المحتوى وتوليد الأسئلة من الدرس نفسه…`);
+        } else {
+          setOcrMsg('⚠️ تعذر قراءة الصور — اكتب سطراً واحداً مما فيها (أهم قانون/تعريف) ثم اضغط تحليل مجدداً. لن نخمّن محتواها.');
+          setOcrBusy(false); setOcrPct(0);
+          return;
+        }
+      } catch {
+        setOcrMsg('⚠️ تعذّر الاستخراج — اكتب سطراً واحداً مما في الصور ثم اضغط تحليل مجدداً.');
+        setOcrBusy(false); setOcrPct(0);
+        return;
+      }
+      setOcrBusy(false); setOcrPct(0);
+    }
+    const hasText = fullText.length >= 4;
+    if (!hasText && !hasLink) return;
     const bits = [srcType];
     if (files.length) bits.push(`ملفات: ${files.map(f => f.name).join('، ')}`);
     if (linkUrl.trim()) bits.push(`رابط: ${linkUrl.trim()}`);
     bits.push(new Date().toLocaleDateString('ar'));
     const ref = bits.join(' — ');
-    const title = lessonTitle.trim() || text.trim().slice(0, 40) || files[0]?.name || linkUrl.trim() || 'درس جديد';
+    const title = lessonTitle.trim() || fullText.slice(0, 40) || files[0]?.name || linkUrl.trim() || 'درس جديد';
     const lid = uid('l');
     // العقل المركزي: INPUT → UNDERSTAND → EXTRACT → STRUCTURE → REASON → GENERATE → VALIDATE
-    const ingest = hasText && qualityPass(text)
-      ? runIngest(text.trim(), lessonMeta0(lid, title, ref), targetMat.name, s.exams.flatMap(e => e.analysis.topics))
+    const ingest = hasText && qualityPass(fullText)
+      ? runIngest(fullText, lessonMeta0(lid, title, ref), targetMat.name, s.exams.flatMap(e => e.analysis.topics))
       : null;
     const concepts = ingest?.concepts ?? [];
     const elements = ingest?.elements ?? [];
     const skipped = ingest?.skipped ?? 0;
     const a = ingest ? { summary: ingest.summary, sections: ingest.sections } : null;
-    // عناصر المخططات المرفقة من أداة المخططات لاحقاً تُربط هنا
     const imgs = files.filter(f => f.preview);
     const nl: Lesson = {
       id: lid, unitId: targetMat.units[0]?.id ?? 'u1', title,
-      sourceText: text.trim(), sourceRef: ref, sections: a?.sections ?? [], elements,
-      concepts, summary: a?.summary ?? (imgs.length ? `درس مصوّر: ${imgs.length} صورة — أضف سطراً واحداً عما فيها لتتولد أسئلة نصية.` : title),
+      sourceText: fullText, sourceRef: ref, sections: a?.sections ?? [], elements,
+      concepts, summary: a?.summary ?? (imgs.length ? `درس مصوّر: ${imgs.length} صورة — افتح الدرس واضغط استخراج النص لتوليد أسئلة من محتواها.` : title),
       mindmap: buildMindmap(title, concepts),
       mastery: concepts.length ? Math.round(concepts.reduce((x, c) => x + c.mastery, 0) / concepts.length) : 20,
       attachments: files.map(f => ({ name: f.name, preview: f.preview })),
     };
     const cards: Flashcard[] = ingest?.cards ?? [];
     const rq: import('../core/types').RecallQ[] = ingest?.questions ?? [];
-    // بطاقات نصية لكل درس — تُظهر أن محتوى أُضيف (لا تعرض الصورة نفسها):
-    // من النص إن وُجد، وإلا بطاقة مراجعة مصدر توجه لفتح الدرس وإكماله
-    const srcCards: Flashcard[] = concepts.length ? [] : [{
-      id: uid('f'), conceptId: lid, kind: 'qa' as const,
-      front: `📚 درس «${title}» — ما موضوعه بكلماتك؟`,
-      back: text.trim()
-        ? text.trim().slice(0, 200)
-        : `مصدرك: ${files.map(f => f.name).join('، ') || linkUrl.trim() || 'مرفق'}. افتح الدرس من المواد، اقرأ المصدر، واكتب سطراً واحداً — ستتولد أسئلة دقيقة فوراً.`,
-      sourceLessonId: lid, sourceRef: ref,
-      ease: 2.5, interval: 1, due: todayISO(), reps: 0, lapses: 0,
-    }];
-    const srcQs: import('../core/types').RecallQ[] = concepts.length ? [] : [{
-      id: uid('rq'), conceptId: lid, kind: 'explain' as const,
-      prompt: `📚 اشرح من ذاكرتك: ما موضوع درس «${title}»؟ (مصدرك: ${files.map(f => f.name).join('، ') || linkUrl.trim() || 'مرفق'})`,
-      answer: text.trim() || `موضوع الدرس: ${title}. افتح المصدر من تبويب المواد واكتب أهم 3 نقاط.`,
-      hint: 'افتح الدرس، اقرأ المصدر 5 دقائق، ثم أجب دون النظر.',
-      sourceLessonId: lid, sourceRef: ref, section: 0, difficulty: 1, origin: 'source',
-    }];
+    // ممنوع أي سؤال/بطاقة عامة: إن لم يُستخرج محتوى حقيقي، يُحفظ الدرس معلقاً بلا توليد
+    const pendingNoContent = !concepts.length && !rq.length;
     set(p => ({
       ...p,
       materials: p.materials.map(m => m.id === targetMat.id ? {
         ...m, units: m.units.map((u, j) => j === 0 ? { ...u, lessons: [...u.lessons, nl] } : u),
       } : m),
-      flashcards: [...p.flashcards, ...cards, ...srcCards], recallBank: [...p.recallBank, ...rq, ...srcQs],
+      flashcards: [...p.flashcards, ...cards], recallBank: [...p.recallBank, ...rq],
     }));
     resetForm(); addXP(set, 30);
     if (ingest) {
       setBrainRep({ report: ingest.report, title, lessonId: lid });
       setSkipNote(null);
     } else if (skipped > 0) setSkipNote(`🧹 تم تخطي ${skipped} مقاطع ضعيفة الجودة (حروف عشوائية) — لن تُبنى عليها أسئلة.`);
-    else if (!concepts.length) setSkipNote(`📚 حُفظ «${title}» وظهر في البطاقات والتذكر والاختبارات — استخدم زر الاستخراج من الصورة أو أضف سطراً واحداً لتتولد أسئلة دقيقة.`);
+    else if (pendingNoContent) setSkipNote(`📷 حُفظ «${title}» معلقاً بلا أسئلة — افتح الدرس من القائمة واضغط «استخراج النص من صور الدرس» ليحلل العقل محتواها ويولّد أسئلة من الدرس نفسه.`);
   };
 
   return (
@@ -273,14 +309,16 @@ export function Materials({ go }: { go: (t: string) => void }) {
         <input placeholder="عنوان الدرس…" value={lessonTitle} onChange={e => setLessonTitle(e.target.value)} />
         {(srcType === 'سبورة' || files.some(f => f.preview)) && !text.trim() && (
           <Glass level={2} className="mb">
-            <div className="small">📋 <b>صورة سبورة/لوح مرفقة بلا نص</b> — للتحليل الدقيق اكتب سطراً واحداً على الأقل مما كُتب على اللوح (أهم قانون/تعريف/فكرة). لا أستطيع قراءة الصور تلقائياً بعد، ولن أخمّن محتواها.</div>
+            <div className="small">📋 <b>صورة مرفقة بلا نص بعد</b> — لا حاجة لكتابة شيء: زر «تحليل» سيقرأ الصورة أولاً (خطوة 1) ثم يولّد الأسئلة من محتواها (خطوة 2). إن تعذرت القراءة سنطلب منك سطراً واحداً فقط عن أهم ما فيها.</div>
           </Glass>
         )}
         <AttList files={files} onRemove={i => setFiles(files.filter((_, j) => j !== i))} />
-        {!!files.some(f => f.preview) && (
+        {(!!files.some(f => f.preview) || ocrMsg) && (
           <div className="mb">
-            <Btn sm kind="pri" disabled={ocrBusy} onClick={runOcr}>🔍 {ocrBusy ? `استخراج النص… ${ocrPct}%` : 'استخراج النص من الصور بالذكاء الاصطناعي'}</Btn>
-            {ocrBusy && <div className="mt"><Bar v={ocrPct} /></div>}
+            {!!files.some(f => f.preview) && <>
+              <Btn sm kind="pri" disabled={ocrBusy} onClick={runOcr}>🔍 {ocrBusy ? `استخراج النص… ${ocrPct}%` : 'استخراج النص من الصور بالذكاء الاصطناعي'}</Btn>
+              {ocrBusy && <div className="mt"><Bar v={ocrPct} /></div>}
+            </>}
             {ocrMsg && <div className="tiny mt">{ocrMsg}</div>}
             {!ocrMsg && <div className="tiny mut mt">يقرأ النص العربي من صور الكتب والسبورة ويضعه في مربع النص — راجعه قبل التحليل.</div>}
           </div>
@@ -288,10 +326,10 @@ export function Materials({ go }: { go: (t: string) => void }) {
         {!!files.length && (
           <div className="tiny mut mb">📝 ملفات النص تُقرأ تلقائياً في مربع النص. لصور الكتب والسبورة: اكتب أو الصق النص بجانب الصورة — لا نختلق قراءة وهمية.</div>
         )}
-        <textarea placeholder="النص (اختياري مع الصور — لكنه يصنع أسئلة أدق)… الصق النص أو اكتب ملاحظاتك وسيحللها AI إلى: تعاريف، قوانين، مصطلحات، أفكار، أمثلة، علاقات، حفظ/فهم، نقاط امتحانية" value={text} onChange={e => setText(e.target.value)} />
+        <textarea placeholder="النص (يُملأ تلقائياً من الصور عند التحليل — ويمكنك كتابته/لصقه مباشرة)… سيحلله AI إلى: تعاريف، قوانين، مصطلحات، أفكار، أمثلة، علاقات، حفظ/فهم، نقاط امتحانية" value={text} onChange={e => setText(e.target.value)} />
         {!matPick && <div className="tiny mut mt">⚠️ اختر المادة أولاً — لن يُضاف الدرس عشوائياً لأي مادة.</div>}
-        {!!files.length && !text.trim() && <div className="tiny mut mt">🖼️ صورة بلا نص: ستُحفظ وتظهر في البطاقات والتذكر كسؤال بصري — وأي سطر تكتبه عنها يولّد أسئلة نصية دقيقة.</div>}
-        <div className="mt row"><Btn kind="pri" disabled={(!text.trim() && !files.length && !linkUrl.trim()) || !matPick} onClick={addContent}>تحليل بالذكاء الاصطناعي ✨</Btn><Btn kind="ghost" onClick={() => setOpen(false)}>إلغاء</Btn></div>
+        {!!files.length && !text.trim() && <div className="tiny mut mt">🖼️ زر التحليل يقرأ صورك أولاً ثم يولّد أسئلة وبطاقات وخرائط من محتواها — لا أسئلة عامة أبداً.</div>}
+        <div className="mt row"><Btn kind="pri" disabled={(!text.trim() && !files.length && !linkUrl.trim()) || !matPick || ocrBusy} onClick={() => void addContent()}>{ocrBusy ? `يقرأ الصور… ${ocrPct}% ✨` : 'تحليل بالذكاء الاصطناعي ✨'}</Btn><Btn kind="ghost" onClick={() => setOpen(false)}>إلغاء</Btn></div>
       </Modal>}
       {lesson && <LessonSheet lesson={lesson} onClose={() => setSel(null)} onPack={() => setPack(lesson.id)} onConcept={setConcept} />}
       {pack && <PackSheet lessonId={pack} onClose={() => setPack(null)} go={go} />}
@@ -336,10 +374,50 @@ export function GeneratedReview({ lessonId, onClose, go }: { lessonId: string; o
   const lesson = s.materials.flatMap(m => m.units.flatMap(u => u.lessons)).find(l => l.id === lessonId);
   const qs = s.recallBank.filter(q => q.sourceLessonId === lessonId);
   const cards = s.flashcards.filter(f => f.sourceLessonId === lessonId);
+  const formulas = (lesson?.elements ?? []).filter(e => e.kind === 'formula');
+  const [fx, setFx] = useState<string | null>(null);
+  const [flatex, setFlatex] = useState('');
   const nav = (r: string) => { onClose(); go(r); };
   return (
     <Sheet title={`👁️ مراجعة المولّد: ${lesson?.title ?? ''}`} onClose={onClose}>
       <div className="tiny mut">عدّل أو احذف — تصحيحك يُحفظ فوراً ويُستخدم في الجلسات القادمة. لا شيء نهائي دون موافقتك.</div>
+      {!!formulas.length && (
+        <><h3 className="mt">🧮 المعادلات المستخرجة ({formulas.length}) — راجع قبل الاعتماد</h3>
+          <div className="tiny mut">الأصل لا يُمس. عدّل التفسير (LaTeX) عند الحاجة — المعادلات منخفضة الثقة ⚪ لا تُستخدم في الحل حتى تعتمدها.</div>
+          <div style={{ display: 'grid', gap: 8 }} className="mt">
+            {formulas.map(el => (
+              <div key={el.id}>
+                <div className="task"><div style={{ flex: 1 }}>
+                  <div className="small" style={{ fontWeight: 600 }}><AutoMath text={el.text} /></div>
+                  <div className="tiny mut">الأصل محفوظ • {el.mathConfidence === 'high' ? '🟢 مؤكدة' : el.mathConfidence === 'mid' ? '🟡 راجع' : el.mathConfidence === 'low' ? '⚪ تحقق إجباري' : '⏳ بلا فحص'}{(el.mathDoubts ?? []).length ? ` — ${el.mathDoubts![0]}` : ''}</div>
+                  {el.latex && <div className="mt"><MathTex latex={el.latex} raw={el.text} confidence={el.mathConfidence} doubts={el.mathDoubts} /></div>}
+                </div>
+                  <Btn sm onClick={() => { setFx(el.id); setFlatex(el.latex ?? ''); }}>تصحيح</Btn></div>
+                {fx === el.id && (
+                  <Glass level={2} className="mt"><label className="lbl">تفسير LaTeX (يُعرض به — الأصل يبقى مرجعاً)</label>
+                    <textarea value={flatex} onChange={e => setFlatex(e.target.value)} dir="ltr" />
+                    <div className="mt"><MathTex latex={flatex || '\\text{…}'} raw={el.text} /></div>
+                    <div className="mt wrap"><Btn kind="pri" sm disabled={!flatex.trim()} onClick={() => {
+                      import('../core/math').then(mod => {
+                        const v = mod.validateLatex(flatex.trim(), el.text);
+                        set(p => ({
+                          ...p,
+                          materials: p.materials.map(m => ({
+                            ...m, units: m.units.map(u => ({
+                              ...u, lessons: u.lessons.map(l => l.id === lessonId ? {
+                                ...l, elements: (l.elements ?? []).map(x => x.id === el.id ? { ...x, latex: flatex.trim(), mathConfidence: v.confidence, mathDoubts: v.doubts } : x),
+                              } : l),
+                            })),
+                          })),
+                        }));
+                        setFx(null);
+                      });
+                    }}>اعتماد التصحيح ✓</Btn><Btn sm onClick={() => setFx(null)}>إلغاء</Btn></div></Glass>
+                )}
+              </div>
+            ))}
+          </div></>
+      )}
       <h3 className="mt">❓ الأسئلة ({qs.length})</h3>
       <div style={{ display: 'grid', gap: 8 }}>
         {qs.map(q => (
@@ -395,6 +473,8 @@ export function GeneratedReview({ lessonId, onClose, go }: { lessonId: string; o
 function LessonSheet({ lesson, onClose, onPack, onConcept }: { lesson: Lesson; onClose: () => void; onPack: () => void; onConcept: (id: string) => void }) {
   const { s, set } = useStore();
   const [mv, setMv] = useState('');
+  const [extracting, setExtracting] = useState(false);
+  const [extractMsg, setExtractMsg] = useState<string | null>(null);
   const kindName: Record<string, string> = { definition: 'تعريف', law: 'قانون', term: 'مصطلح', idea: 'فكرة', example: 'مثال', relation: 'علاقة', memorize: 'حفظ', understand: 'فهم', exam: 'امتحاني' };
   const curMat = s.materials.find(m => m.units.some(u => u.lessons.some(l => l.id === lesson.id)));
   const move = () => {
@@ -425,6 +505,55 @@ function LessonSheet({ lesson, onClose, onPack, onConcept }: { lesson: Lesson; o
         options={s.materials.filter(m => m.id !== curMat?.id).map(m => ({ id: m.id, name: m.name, color: m.color }))}
         onPick={id => { setMv(id); }} placeholder="اختر المادة…" />
       {!!mv && <div className="mt"><Btn sm kind="pri" onClick={move}>تأكيد النقل ✓</Btn></div>}
+      {!lesson.concepts.length && (
+        <Glass level={2} className="mt">
+          <h3>📷 درس معلق — بلا محتوى مستخرج بعد</h3>
+          <div className="small mut">صوره محفوظة هنا. لن تُنشأ أي أسئلة عامة — استخرج النص من الصور ليحلل العقل محتواها الحقيقي ويولّد أسئلة وبطاقات وخرائط من الدرس نفسه.</div>
+          <div className="mt wrap">
+            <Btn sm kind="pri" disabled={extracting || !(lesson.attachments ?? []).some(a => a.preview)} onClick={() => void (async () => {
+              setExtracting(true); setExtractMsg('🔍 العقل يقرأ صور الدرس…');
+              try {
+                const mod = await import('../core/ocr');
+                const { runIngest } = await import('../core/brain');
+                const parts: string[] = [];
+                for (const a of lesson.attachments ?? []) {
+                  if (!a.preview) continue;
+                  const r = await mod.ocrImage(a.preview);
+                  if ('text' in r && r.text.trim()) parts.push(r.text);
+                }
+                if (!parts.length) { setExtractMsg('⚠️ تعذر قراءة الصور — أضف النص يدوياً من زر الإضافة أو صورة أوضح.'); setExtracting(false); return; }
+                const full = parts.join('\n');
+                const lm = { id: lesson.id, title: lesson.title, sourceRef: lesson.sourceRef };
+                const ing = runIngest(full, lm, curMat?.name ?? '', s.exams.flatMap(e => e.analysis.topics));
+                if (!ing.concepts.length && !ing.questions.length) { setExtractMsg('⚠️ النص المستخرج ضعيف — راجعه وأضف سطراً واضحاً.'); setExtracting(false); return; }
+                const mergedConcepts = [...lesson.concepts, ...ing.concepts];
+                set(p => ({
+                  ...p,
+                  materials: p.materials.map(m => ({
+                    ...m, units: m.units.map(u => ({
+                      ...u, lessons: u.lessons.map(l => l.id === lesson.id ? {
+                        ...l,
+                        sourceText: [l.sourceText, full].filter(Boolean).join('\n'),
+                        sections: [...(l.sections ?? []), ...ing.sections],
+                        elements: [...(l.elements ?? []), ...ing.elements],
+                        concepts: [...l.concepts, ...ing.concepts],
+                        summary: ing.summary || l.summary,
+                        mindmap: buildMindmap(l.title, mergedConcepts),
+                        mastery: Math.round(mergedConcepts.reduce((x, c) => x + c.mastery, 0) / Math.max(1, mergedConcepts.length)),
+                      } : l),
+                    })),
+                  })),
+                  flashcards: [...p.flashcards, ...ing.cards],
+                  recallBank: [...p.recallBank, ...ing.questions],
+                }));
+                setExtractMsg(`✅ استُخرج ${ing.concepts.length} مفاهيم و${ing.questions.length} أسئلة من صور الدرس نفسه.`);
+              } catch { setExtractMsg('⚠️ تعذّر الاستخراج — حاول مجدداً.'); }
+              setExtracting(false);
+            })()}>🔍 {extracting ? 'استخراج…' : 'استخراج النص من صور الدرس وتوليد المحتوى'}</Btn>
+          </div>
+          {extractMsg && <div className="tiny mt">{extractMsg}</div>}
+        </Glass>
+      )}
       <Glass className="mt"><h3>📝 الملخص</h3><div className="small">{lesson.summary}</div></Glass>
       <h3 className="mt">🧩 المفاهيم ({lesson.concepts.length})</h3>
       <div style={{ display: 'grid', gap: 8 }}>
@@ -500,7 +629,7 @@ export function ConceptSheet({ conceptId, onClose, go }: { conceptId: string; on
   return (
     <Sheet title={`💡 ${found.title.slice(0, 50)}`} onClose={onClose}>
       <div className="wrap"><Chip on>{kindName[found.kind] ?? found.kind}</Chip><Chip>{found.mat} / {found.lesson}</Chip><Chip>الفقرة {found.section + 1} في المصدر</Chip></div>
-      <Glass className="mt"><div className="small">{found.detail}</div></Glass>
+      <Glass className="mt"><div className="small"><AutoMath text={found.detail} /></div></Glass>
       <div className="mt"><div className="between small"><span>الإتقان</span><span>{found.mastery}%</span></div><Bar v={found.mastery} /></div>
       <div className="mt"><div className="between small"><span>💪 قوة الاسترجاع</span><span>{found.recallStrength}%</span></div>
         <Bar v={found.recallStrength} color={found.recallStrength >= 70 ? '#34d399' : found.recallStrength >= 40 ? '#fbbf24' : '#f87171'} />
@@ -534,7 +663,7 @@ export function ConceptSheet({ conceptId, onClose, go }: { conceptId: string; on
 
 
 export type { SourceMode } from '../core/ai';
-export type RecallFocus = import('../core/types').QFocus | 'all' | 'general';
+export type RecallFocus = import('../core/types').QFocus | 'all' | 'diagram';
 
 const FOCUS_AR: { id: RecallFocus; n: string; icon: string }[] = [
   { id: 'all', n: 'كل شيء في الدرس', icon: '📚' },
@@ -543,7 +672,8 @@ const FOCUS_AR: { id: RecallFocus; n: string; icon: string }[] = [
   { id: 'fact', n: 'حقائق مهمة', icon: '📌' },
   { id: 'relation', n: 'علاقات وتطبيق', icon: '🔗' },
   { id: 'sequence', n: 'تسلسلات', icon: '🪜' },
-  { id: 'general', n: 'مراجعة عامة', icon: '💭' },
+  { id: 'diagram', n: 'مخططات', icon: '🗺️' },
+  { id: 'example', n: 'أمثلة', icon: '💡' },
 ];
 
 export function Recall() {
@@ -566,7 +696,8 @@ export function Recall() {
   const [streak, setStreak] = useState({ ok: 0, bad: 0 });
   const [pickReason, setPickReason] = useState('');
   if (!s.recallBank.length) return (<div><h1>🧠 تذكّر نشط</h1>
-    <EmptyContent what="أسئلة تذكّر نشط" hint="أضف أول مصدر دراسي لإنشاء الأسئلة." /></div>);
+    <EmptyContent what="أسئلة تذكّر نشط" hint="أضف أول مصدر دراسي لإنشاء الأسئلة." />
+    <PendingLessons /></div>);
   const lessons = s.materials.flatMap(m => m.units.flatMap(u => u.lessons.map(l => ({ ...l, mat: m.name }))));
   const lesson = lessons.find(l => l.id === lessonFilter) ?? lessons.find(l => (l.elements?.length ?? 0) > 0) ?? lessons[0];
   const elements = lesson?.elements ?? [];
@@ -575,8 +706,8 @@ export function Recall() {
   const kindAr: Record<string, string> = { qa: 'سؤال وجواب', mcq: 'اختيار من متعدد', tf: 'صح/خطأ', fill: 'أكمل الفراغ', why: 'لماذا؟', explain: 'اشرح', compare: 'قارن', apply: 'طبّق', solve: 'حل مسألة', link: 'اربط', cause: 'سبب/نتيجة', sequence: 'ترتيب', definition: 'تعريف' };
 
   const buildQueue = (): typeof lessonBank => {
-    let pool = lessonBank.filter(q => focus === 'all' ? q.focus !== 'general' : q.focus === focus);
-    if (focus === 'general') pool = lessonBank.filter(q => q.focus === 'general' || !q.elementId);
+    // محتوى فقط: أسئلة بتركيز محتوى حقيقي — لا أسئلة عامة أبداً
+    const pool = lessonBank.filter(q => q.focus && q.focus !== 'general' && (focus === 'all' ? true : q.focus === focus));
     // الأضعف أولاً ثم المستوى تصاعدياً — لا عشوائية عمياء
     const strOf = (qid: string) => {
       const c = s.materials.flatMap(m => m.units.flatMap(u => u.lessons.flatMap(l => l.concepts))).find(c => c.id === s.recallBank.find(q => q.id === qid)?.conceptId);
@@ -619,8 +750,7 @@ export function Recall() {
     );
   }
   function buildQueuePreview(): number {
-    let pool = lessonBank.filter(q2 => focus === 'all' ? q2.focus !== 'general' : q2.focus === focus);
-    if (focus === 'general') pool = lessonBank.filter(q2 => q2.focus === 'general' || !q2.elementId);
+    const pool = lessonBank.filter(q2 => q2.focus && q2.focus !== 'general' && (focus === 'all' ? true : q2.focus === focus));
     return Math.min(20, pool.length);
   }
   if (!q) return (<div><h1>🧠 تذكّر نشط</h1>
@@ -696,7 +826,7 @@ export function Recall() {
       <Glass level={2} className={fb === 'good' ? 'good' : fb === 'bad' ? 'bad' : ''}>
         <div className="between"><span className="small mut">❓ {kindAr[q.kind]}</span>
           {meta && <span className="tiny mut">إتقان {meta.mastery}% • استرجاع {meta.strength}%</span>}</div>
-        <div style={{ fontSize: 17, fontWeight: 700, margin: '8px 0' }}>{q.prompt}</div>
+        <div style={{ fontSize: 17, fontWeight: 700, margin: '8px 0' }}><AutoMath text={q.prompt} /></div>
         {(q.kind === 'mcq' || q.kind === 'tf') && q.choices && !tried ? <>
           <div style={{ display: 'grid', gap: 8 }}>
             {q.choices.map(c => (
@@ -713,7 +843,7 @@ export function Recall() {
           <div className="wrap">{[1, 2, 3, 4, 5].map(n => <Chip key={n} on={conf === n} onClick={() => setConf(n)}>{n}</Chip>)}</div>
           <div className="mt wrap"><Btn kind="pri" sm disabled={mine.trim().length < 2} onClick={check}>تحقق من إجابتي 🔍</Btn></div>
         </> : <>
-          <Glass className="mt"><h3>✅ الإجابة النموذجية (من مصدرك)</h3><div className="small">{q.answer}</div>
+          <Glass className="mt"><h3>✅ الإجابة النموذجية (من مصدرك)</h3><div className="small"><AutoMath text={q.answer} /></div>
             {sim !== null && (
               <div className="small mt">{sim >= 0.55 ? `✅ صحيح (${Math.round(sim * 100)}%)` : sim >= 0.28 ? `🟡 صحيح جزئياً (${Math.round(sim * 100)}%) — راجع الكلمات الجوهرية الناقصة.` : `🔍 غير صحيح (${Math.round(sim * 100)}%) — سُجل نوع الخطأ وفُعّل سلم المعالجة.`}</div>
             )}
@@ -742,7 +872,8 @@ export function Cards() {
   const [idx, setIdx] = useState(0);
   const [shuffled, setShuffled] = useState(false);
   if (!s.flashcards.length) return (<div><div className="between mb"><h1>🃏 البطاقات التعليمية</h1></div>
-    <EmptyContent what="بطاقات تعليمية" hint="البطاقات تُصنع تلقائياً من دروسك: سؤال/جواب، فراغات، قوانين، خرائط." /></div>);
+    <EmptyContent what="بطاقات تعليمية" hint="البطاقات تُصنع تلقائياً من دروسك: سؤال/جواب، فراغات، قوانين، خرائط." />
+    <PendingLessons /></div>);
   const masteryOf = (cid: string) =>
     s.materials.flatMap(m => m.units.flatMap(u => u.lessons.flatMap(l => l.concepts))).find(c => c.id === cid)?.mastery ?? 50;
   // الأضعف أولاً دائماً (أذكى من العشوائية) — والخلط اختياري
@@ -780,9 +911,9 @@ export function Cards() {
           <span className="tiny mut">(غيّر الموعد متى شئت — القرار لك)</span></div>
         <div onClick={() => setFlip(!flip)} style={{ minHeight: 130, display: 'grid', placeItems: 'center', cursor: 'pointer', padding: 12 }}>
           {!flip ? <div style={{ fontSize: 17, fontWeight: 700, textAlign: 'center', width: '100%' }}>
-            {card.front}<div className="tiny mut mt">اضغط للكشف 👆</div></div>
+            <AutoMath text={card.front} /><div className="tiny mut mt">اضغط للكشف 👆</div></div>
             : <div className="pop" style={{ textAlign: 'center', width: '100%' }}>
-              <div className="small">{card.back}</div>
+              <div className="small"><AutoMath text={card.back} /></div>
               {card.kind === 'draw' && <div className="tiny mut mt">🎨 ارسم المفهوم على ورقة ثم قارن.</div>}
               {card.kind === 'image' && <div className="tiny mut mt">🖼️ تخيّل صورة ذهنية تربط المصطلح بالشكل.</div>}</div>}
         </div>
@@ -950,7 +1081,7 @@ export function MapCards() {
   if (!s.diagrams.length) return (
     <Glass className="mt"><h2>🗺️ بطاقات الخرائط المفرّغة</h2>
       {pendingLessons.length ? (
-        <div className="small mut">لديك {pendingLessons.length} دروس بانتظار سطر واحد ({pendingLessons.map(l => `«${l.title}»`).join('، ')}) — استخدم زر الاستخراج من الصورة في المواد لتتحول لخرائط وأسئلة.</div>
+        <div className="small mut">لديك {pendingLessons.length} دروس بصور بانتظار الاستخراج ({pendingLessons.map(l => `«${l.title}»`).join('، ')}) — افتح الدرس من المواد واضغط «استخراج النص من صور الدرس» لتتحول لخرائط وأسئلة من محتواها.</div>
       ) : (
         <div className="small mut">لا مخططات بعد — أنشئ مخططاً بتسمياته من أداة «أنشئ أداة حفظ» بالأعلى، وستتحول هنا لبطاقات تحديد ذكية تلقائياً.</div>
       )}
@@ -1005,7 +1136,9 @@ export function Tests() {
   // عينة متنوعة: سؤال لكل مفهوم بالتناوب — لا تركيز على مفهوم واحد
   const concepts = s.materials.flatMap(m => m.units.flatMap(u => u.lessons.flatMap(l => l.concepts.map(c => ({ ...c, mat: m.name })))));
   const lessonIds = new Set(s.materials.flatMap(m => m.units.flatMap(u => u.lessons.map(l => l.id))));
-  const bank = mode === 'exam-pattern' ? [...s.recallBank, ...synthExamQs(s, 8)] : filterByMode(s.recallBank, mode);
+  const bank = (mode === 'exam-pattern' ? [...s.recallBank, ...synthExamQs(s, 8)] : filterByMode(s.recallBank, mode))
+    // محتوى فقط — استبعاد أي سؤال عام بلا تركيز محتوى
+    .filter(q => (q.focus && q.focus !== 'general') || q.origin === 'exam-pattern');
   const diverse = (() => {
     const byC = new Map<string, typeof s.recallBank>();
     for (const q of bank) {
@@ -1060,7 +1193,7 @@ export function Tests() {
     <div>
       <h1>📝 اختبارات تدريبية</h1>
       <div className="small mut mb">مخصصة من مفاهيمك الفعلية — سؤال لكل مفهوم بالتناوب (لا تركيز على مفهوم واحد)، مع تصحيح تلقائي عادل ومراجعة الأخطاء.</div>
-      {!s.recallBank.length ? <EmptyContent what="اختبارات" hint="الاختبارات تُبنى من أسئلة دروسك — أضف درساً أولاً." /> : <>
+      {!s.recallBank.length ? <><EmptyContent what="اختبارات" hint="الاختبارات تُبنى من أسئلة دروسك — أضف درساً أولاً." /><PendingLessons /></> : <>
         <div className="tabs mb">
           {([['source-only', 'المصدر فقط'], ['source-external', 'مصدر + خارجي'], ['exam-pattern', 'نمط الامتحان'], ['mixed', 'مختلط']] as const).map(([m, n]) => (
             <button key={m} className={`chip tab ${mode === m ? 'on' : ''}`} onClick={() => setMode(m)}>{n}</button>
@@ -1079,7 +1212,7 @@ export function Tests() {
           {diverse.map((q, i) => {
             const t = tag(q.id);
             return (
-              <div key={q.id} className="mb"><div className="small" style={{ fontWeight: 600 }}>{i + 1}. {q.prompt}</div>
+              <div key={q.id} className="mb"><div className="small" style={{ fontWeight: 600 }}>{i + 1}. <AutoMath text={q.prompt} /></div>
                 <div className="tiny mut">📚 {t?.mat} • إتقان المفهوم {t?.mastery}%</div>
                 <input placeholder="إجابتك…" value={answers[q.id] ?? ''} onChange={e => setAnswers({ ...answers, [q.id]: e.target.value })} /></div>
             );
@@ -1094,7 +1227,7 @@ export function Tests() {
                 <span className="dot" style={{ background: results[i].ok ? '#34d399' : '#f87171' }} />
                 <div style={{ flex: 1 }}><div className="small" style={{ fontWeight: 600 }}>{q.prompt.slice(0, 60)}…</div>
                   <div className="tiny mut">{q.origin === 'exam-pattern' ? '🎯 نمط امتحاني' : `📎 ${q.sourceRef.slice(0, 40)}`} • تطابق {Math.round(results[i].sim * 100)}% • إجابتك: {(answers[q.id] || '—').slice(0, 50)}</div>
-                  {!results[i].ok && <div className="tiny" style={{ color: '#34d399' }}>✓ النموذجية: {q.answer.slice(0, 80)}…</div>}</div>
+                  {!results[i].ok && <div className="tiny" style={{ color: '#34d399' }}>✓ النموذجية: <AutoMath text={q.answer.slice(0, 160)} />…</div>}</div>
               </div>
             ))}
             <div className="tiny mut mt">الأخطاء أُضيفت لبنك الأخطاء تلقائياً — عالجها من تبويب الإحصائيات.</div>
@@ -1116,7 +1249,7 @@ export function Archive() {
   const [ocrMsg, setOcrMsg] = useState<string | null>(null);
   const picker = useFilePicker(fl => {
     if (!fl) return;
-    collectFiles(fl, t => setRaw(prev => (prev ? prev + '\n' : '') + t)).then(fs => setShots(prev => [...prev, ...fs]));
+    collectFiles(fl, t => setRaw(prev => (prev ? prev + '\n' : '') + t), m => setOcrMsg(m)).then(fs => setShots(prev => [...prev, ...fs]));
   });
   const runOcr = async () => {
     const imgs = shots.filter(f => f.preview);
@@ -1308,14 +1441,14 @@ export function Heatmap() {
   ));
   return (
     <Glass className="mt"><h2>🗺️ خريطة الإتقان الحرارية</h2>
-      <div className="wrap tiny mut mb"><span>🟢 متقن</span><span>🟡 يحتاج مراجعة</span><span>🟠 ضعيف</span><span>🔴 خطر</span><span>⏳ بانتظار سطر</span></div>
+      <div className="wrap tiny mut mb"><span>🟢 متقن</span><span>🟡 يحتاج مراجعة</span><span>🟠 ضعيف</span><span>🔴 خطر</span><span>⏳ بانتظار استخراج</span></div>
       <div className="heat">
         {concepts.slice(0, 14).map(c => {
           const b = bandOf(c.mastery);
           return <div key={c.id} title={`${c.title} — ${c.mastery}%`} style={{ background: bandColor(b) + '33', borderColor: bandColor(b), color: bandColor(b), fontWeight: 700 }}>{c.mastery}</div>;
         })}
         {pending.slice(0, 14 - Math.min(14, concepts.length)).map(l => (
-          <div key={l.id} title={`«${l.title}» (${l.mat}) — درس مضاف بانتظار سطر واحد ليكتمل تحليله`} style={{ borderColor: '#94a3b8', color: '#94a3b8', fontWeight: 700 }}>⏳</div>
+          <div key={l.id} title={`«${l.title}» (${l.mat}) — درس بصور بانتظار استخراج نصها`} style={{ borderColor: '#94a3b8', color: '#94a3b8', fontWeight: 700 }}>⏳</div>
         ))}
         {!concepts.length && !pending.length && <div className="tiny mut">لا دروس بعد — أضف أول درس من المواد.</div>}
       </div>

@@ -6,6 +6,24 @@ import {
   analyzeContent, buildGraph, conceptToCards, extractElements,
   forgettingQueue, generateFromElements, generateRecall, qualityPass,
 } from './ai';
+import { doubtSpots, extractEquations } from './math';
+
+/** يربط المعادلات المستخرجة بعناصر الصيغ (حسب الفقرة/النص) مع حالتها — الأصل لا يُمس */
+export function attachMath(elements: ContentElement[], text: string): { elements: ContentElement[]; eqCount: number; lowCount: number; doubts: string[] } {
+  const eqs = extractEquations(text);
+  if (!eqs.length) return { elements, eqCount: 0, lowCount: 0, doubts: doubtSpots(text) };
+  const used = new Set<number>();
+  const out = elements.map(el => {
+    if (el.kind !== 'formula') return el;
+    const idx = eqs.findIndex((e, i) => !used.has(i) && (e.section === el.section || el.text.includes(e.raw.slice(0, 12)) || e.raw.includes(el.label.slice(0, 8))));
+    if (idx < 0) return el;
+    used.add(idx);
+    const e = eqs[idx];
+    return { ...el, latex: e.latex, mathConfidence: e.confidence, mathDoubts: e.doubts };
+  });
+  const low = eqs.filter(e => e.confidence === 'low').length;
+  return { elements: out, eqCount: eqs.length, lowCount: low, doubts: [...eqs.flatMap(e => e.doubts).slice(0, 4), ...doubtSpots(text)].slice(0, 6) };
+}
 
 export interface BrainStep { tool: string; label: string; detail: string; ok: boolean }
 export type Confidence = 'high' | 'mid' | 'low';
@@ -111,7 +129,7 @@ export function validateBank(bank: RecallQ[], sourceText: string): { ok: RecallQ
 
 /** 40. العقل يقرر ماذا يولّد حسب المحتوى والملف — لا أرقام ثابتة عمياء */
 export function generationPlan(elements: ContentElement[], profile: SubjectProfile): { focus: string; questions: number }[] {
-  const names: Record<string, string> = { formula: 'القوانين', definition: 'التعاريف', fact: 'الحقائق', list: 'القوائم', relation: 'العلاقات', sequence: 'التسلسلات', diagram: 'المخططات' };
+  const names: Record<string, string> = { formula: 'القوانين', definition: 'التعاريف', fact: 'الحقائق', list: 'القوائم', relation: 'العلاقات', sequence: 'التسلسلات', diagram: 'المخططات', example: 'الأمثلة' };
   const counts = new Map<string, number>();
   for (const el of elements) {
     let w = 2;
@@ -207,16 +225,31 @@ export function runIngest(
   const concepts = buildGraph(raw);
   steps.push({ tool: 'Knowledge Graph', label: 'بناء الرسم المعرفي', detail: concepts.length ? 'كل مفهوم مرتبط بسابقه ومماثليه' : 'لا مفاهيم للربط', ok: true });
 
-  const elements = extractElements(text.trim(), lessonMeta.id);
+  const elementsRaw = extractElements(text.trim(), lessonMeta.id);
+  // ذكاء المعادلات: استخراج + تحقق + ربط — قبل أي توليد يستخدمها
+  const math = attachMath(elementsRaw, text.trim());
+  const elements = math.elements;
   const profile = subjectProfile(matName);
   steps.push({ tool: 'Reasoning', label: `ملف المادة: ${profile.label}`, detail: profile.note, ok: true });
+  steps.push({
+    tool: 'Math Intelligence',
+    label: math.eqCount ? `فحص ${math.eqCount} معادلات (${math.eqCount - math.lowCount} مؤكدة)` : 'لا معادلات مكتشفة في النص',
+    detail: math.eqCount
+      ? (math.lowCount ? `${math.lowCount} تحتاج مراجعتك قبل استخدامها في الحل — ${math.doubts[0] ?? 'راجع الأصل'}` : 'كل المعادلات صالحة للعرض والحل')
+      : 'تُستخدم الأسئلة النصية فقط — لا تخمين لمعادلات',
+    ok: math.lowCount === 0,
+  });
 
   const plan = generationPlan(elements, profile);
   steps.push({ tool: 'Planner', label: 'خطة التوليد', detail: plan.length ? plan.map(p => `${p.focus}: ${p.questions}`).join(' • ') : 'لا عناصر — بطاقة مصدر فقط', ok: true });
 
-  const elQs = generateFromElements(lessonMeta, elements, concepts, archiveTopics, 14);
+  const elQsAll = generateFromElements(lessonMeta, elements, concepts, archiveTopics, 14);
   const genQs = generateRecall(lessonMeta, concepts, 6);
-  steps.push({ tool: 'Question Generator', label: 'توليد الأسئلة', detail: `${elQs.length} من العناصر + ${genQs.length} عامة من المصدر`, ok: elQs.length + genQs.length > 0 });
+  // بوابة المعادلات: أسئلة الحل/التطبيق (مستوى 3+) المبنية على معادلة منخفضة الثقة تُحجب قبل الفحص
+  const lowEls = new Set(elements.filter(e => e.kind === 'formula' && e.mathConfidence === 'low').map(e => e.id));
+  const elQs = elQsAll.filter(q => !(q.elementId && lowEls.has(q.elementId) && (q.level ?? 2) >= 3));
+  const gated = elQsAll.length - elQs.length;
+  steps.push({ tool: 'Question Generator', label: 'توليد الأسئلة', detail: `${elQs.length} من العناصر + ${genQs.length} عامة من المصدر${gated ? ` • حُجب ${gated} سؤال حل لمعادلات غير مؤكدة` : ''}`, ok: elQs.length + genQs.length > 0 });
 
   const cards = concepts.flatMap(c => conceptToCards(c, lessonMeta)).slice(0, 8);
   steps.push({ tool: 'Flashcard Generator', label: 'توليد البطاقات', detail: `${cards.length} بطاقات من المفاهيم`, ok: true });

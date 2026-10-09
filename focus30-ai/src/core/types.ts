@@ -27,13 +27,15 @@ export interface Concept {
 
 export interface LessonAttachment { name: string; preview?: string }
 
-export type ElementKind = 'formula' | 'definition' | 'fact' | 'list' | 'relationship' | 'sequence' | 'diagram';
+export type ElementKind = 'formula' | 'definition' | 'fact' | 'list' | 'relationship' | 'sequence' | 'diagram' | 'example';
 export interface ContentElement {
   id: ID; lessonId: ID; kind: ElementKind;
   text: string; label: string; section: number;
   vars?: { sym: string; meaning?: string }[];
   units?: string[]; numbers?: string[];
   steps?: string[]; items?: string[];
+  /** المعادلة بتفسير LaTeX + حالتها — الأصل في text لا يُمس أبداً */
+  latex?: string; mathConfidence?: 'high' | 'mid' | 'low'; mathDoubts?: string[];
 }
 
 export interface Lesson {
@@ -61,7 +63,7 @@ export interface StudyPack {
 
 export type RecallKind = 'qa' | 'mcq' | 'tf' | 'fill' | 'why' | 'explain' | 'compare' | 'apply' | 'solve' | 'link' | 'cause' | 'sequence' | 'definition';
 export type QOrigin = 'source' | 'external' | 'exam-pattern';
-export type QFocus = 'formula' | 'definition' | 'fact' | 'list' | 'relation' | 'sequence' | 'diagram' | 'general';
+export type QFocus = 'formula' | 'definition' | 'fact' | 'list' | 'relation' | 'sequence' | 'diagram' | 'general' | 'example';
 export interface RecallQ {
   id: ID; conceptId: ID; kind: RecallKind; prompt: string;
   choices?: string[]; answer: string; hint: string; image?: string;
@@ -101,6 +103,12 @@ export interface SchedBlock {
   label: string; type: 'school' | 'class' | 'busy' | 'exam' | 'free';
 }
 
+export interface ScheduleProgram {
+  id: ID; title: string; date: string;
+  image?: string; imageName?: string;
+  blocks: SchedBlock[];
+}
+
 export interface PlanDay { day: number; date: string; taskIds: string[]; note: string; done: boolean }
 
 export interface ExamPaper {
@@ -130,6 +138,7 @@ export interface AppState {
   errors: ErrorEntry[];
   tasks: Task[];
   schedule: SchedBlock[];
+  programs: ScheduleProgram[];
   plan: PlanDay[];
   planGoal: string;
   exams: ExamPaper[];

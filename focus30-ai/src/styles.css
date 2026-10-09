@@ -138,6 +138,10 @@ label.lbl { display: block; font-size: 12px; color: var(--mut); margin: 10px 0 6
 
 .timer-ok { color: var(--green); } .timer-warn { color: var(--amber); } .timer-bad { color: var(--red); }
 
+/* KaTeX داخل الثيم الداكن: أبيض ناعم، وتمرير أفقي عند الضيق */
+.katex { color: #f1f5f9; font-size: 1.05em; }
+.katex-display { margin: 8px 0; overflow-x: auto; overflow-y: hidden; padding: 4px 2px; }
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 button, .check, .mask-word { min-height: 36px; }

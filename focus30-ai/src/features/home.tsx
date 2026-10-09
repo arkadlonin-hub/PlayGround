@@ -7,6 +7,7 @@ import { build30Day, coachAdvices, decisionQueue, forgettingQueue, masteryAfter,
 import { parseScheduleText } from '../core/brain';
 import { Area, Bar, Btn, Chip, Glass, MasteryDot, Modal, Radar, Ring, Sheet } from '../ui/kit';
 import { AttachSheet, AttList, collectFiles, useFilePicker, type AttFile } from '../ui/attach';
+import { AutoMath } from '../ui/math';
 import { str } from '../core/i18n';
 
 const DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -193,11 +194,11 @@ export function ReviewCard({ conceptId, onClose }: { conceptId: string; onClose:
     <Sheet title={`🧠 بطاقة مراجعة: ${found.title.slice(0, 45)}`} onClose={onClose}>
       <div className="tiny mut">📚 {found.mat} / {found.lesson} • خطر النسيان {Math.round(found.forgetRisk * 100)}% • قوة الاسترجاع {found.recallStrength}%</div>
       {!done ? <>
-        <Glass className="mt"><div className="small" style={{ fontWeight: 700 }}>{q ? ('prompt' in q ? (q as { prompt: string }).prompt : (q as { front: string }).front) : `اشرح: ${found.title}`}</div></Glass>
+        <Glass className="mt"><div className="small" style={{ fontWeight: 700 }}>{q ? ('prompt' in q ? <AutoMath text={(q as { prompt: string }).prompt} /> : <AutoMath text={(q as { front: string }).front} />) : <AutoMath text={`اشرح: ${found.title}`} />}</div></Glass>
         <div className="mt"><textarea placeholder="أجب من ذاكرتك…" value={ans} onChange={e => setAns(e.target.value)} /></div>
         <div className="mt wrap"><Btn kind="pri" sm disabled={ans.trim().length < 2} onClick={finish}>قيّم 🔍</Btn></div>
       </> : <>
-        <Glass className="mt"><div className="small">{found.detail}</div>
+        <Glass className="mt"><div className="small"><AutoMath text={found.detail} /></div>
           <div className="small mut mt">حُدثت قوة الاسترجاع والمراجعة القادمة من هذه البطاقة.</div></Glass>
         <div className="mt"><Btn kind="pri" sm onClick={onClose}>تم ✓</Btn></div>
       </>}
@@ -337,8 +338,9 @@ export function Today() {
       tasks: [...p.tasks, { id: uid('t'), title: `مراجعة: ${label.slice(0, 45)}`, materialId: matId, lessonId: lesson?.id, date: t, mins: 15, kind: 'review', done: false, priority: 1 }],
     }));
   };
-  // smart planner: free slots from schedule
-  const busyToday = s.schedule.filter(b => b.day === new Date().getDay() && b.type !== 'free');
+  // smart planner: free slots from all weekly programs
+  const allBlocks = (s.programs ?? []).flatMap(pg => pg.blocks.map(b => ({ ...b, program: pg.title })));
+  const busyToday = [...allBlocks, ...s.schedule].filter(b => b.day === new Date().getDay() && b.type !== 'free');
   return (
     <div>
       <h1>📅 اليوم</h1>
@@ -372,9 +374,9 @@ export function Today() {
       )}
       <Glass className="mt">
         <h2>🕒 الوقت المتاح اليوم (من الأسبوعي)</h2>
-        {busyToday.length ? busyToday.map(b => (
-          <div key={b.id} className="small between" style={{ padding: '6px 0' }}>
-            <span>🚫 {b.label} ({b.start}–{b.end})</span><Chip>{b.type}</Chip></div>
+        {busyToday.length ? busyToday.map((b, bi) => (
+          <div key={`${b.id}_${bi}`} className="small between" style={{ padding: '6px 0' }}>
+            <span>🚫 {b.label} ({b.start}–{b.end}){(b as { program?: string }).program ? ` • ${(b as { program?: string }).program}` : ''}</span><Chip>{b.type}</Chip></div>
         )) : <div className="small mut">لا التزامات مسجلة — يوم مفتوح للدراسة العميقة.</div>}
         <div className="small mut mt">المخطط الذكي لا يضع مهاماً أثناء المدرسة/الحصص/المواعيد تلقائياً.</div>
       </Glass>
@@ -419,18 +421,20 @@ export function DailyReport() {
 export function WeeklySchedule() {
   const { s, set } = useStore();
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [progTitle, setProgTitle] = useState('');
   const [ocrText, setOcrText] = useState('');
   const [attachOpen, setAttachOpen] = useState(false);
   const [shots, setShots] = useState<AttFile[]>([]);
   const [preview, setPreview] = useState<{ day: number; start: string; end: string; label: string; type: 'school' | 'exam' | 'busy' }[]>([]);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrMsg, setOcrMsg] = useState<string | null>(null);
+  const [delProg, setDelProg] = useState<string | null>(null);
+  const programs = s.programs ?? [];
   const picker = useFilePicker(fl => {
     if (!fl) return;
-    collectFiles(fl, t => setOcrText(prev => (prev ? prev + '\n' : '') + t)).then(fs => {
+    collectFiles(fl, t => setOcrText(prev => (prev ? prev + '\n' : '') + t), m => setOcrMsg(m)).then(fs => {
       setShots(prev => {
         const next = [...prev, ...fs];
-        // العقل: صورة جدول مرفقة → استخراج تلقائي فوري (نص + أيام + مواد)
         const imgs = next.filter(f => f.preview);
         if (imgs.length) void autoScheduleOcr(imgs);
         return next;
@@ -438,7 +442,8 @@ export function WeeklySchedule() {
     });
   });
   const autoScheduleOcr = async (imgs: AttFile[]) => {
-    setOcrBusy(true); setOcrMsg('🔍 العقل يقرأ صورة الجدول…');
+    // خطوة واحدة مرئية: قراءة → توزيع → معاينة (لا "يحلل" صامتاً)
+    setOcrBusy(true); setOcrMsg('🔍 الخطوة 1/3: قراءة الصورة…');
     try {
       const mod = await import('../core/ocr');
       const parts: string[] = [];
@@ -446,100 +451,150 @@ export function WeeklySchedule() {
         const r = await mod.ocrImage(im.preview!);
         if ('text' in r && r.text.trim()) parts.push(r.text);
       }
-      if (parts.length) {
-        const full = parts.join('\n');
-        setOcrText(full);
-        const rows = parseScheduleText(full, s.materials.map(m => m.name));
-        setPreview(rows);
-        const exams = rows.filter(r => r.type === 'exam').length;
-        const unclear = rows.filter(r => r.label.includes('غير واضح')).length;
-        setOcrMsg(`✅ قرأ العقل ${imgs.length} صور: ${rows.length} حصص (${rows.length - exams} دراسة${exams ? ` + ${exams} امتحانات` : ''})${unclear ? ` — ${unclear} مواد غير واضحة ⚠️ عدّلها في المعاينة، ولن أخمنها` : ''} — راجع وعدّل ثم احفظ.`);
-      } else {
-        setOcrMsg('⚠️ الصورة غير واضحة — حددت الأجزاء الغامضة: اكتب الأيام والساعات يدوياً، ولن أخمنها.');
-      }
+      if (!parts.length) { setOcrMsg('⚠️ تعذر قراءة الصورة — الصق النص يدوياً أو جرّب صورة أوضح.'); setOcrBusy(false); return; }
+      setOcrMsg('🧠 الخطوة 2/3: استخراج الأيام والمواد والأوقات…');
+      const full = parts.join('\n');
+      setOcrText(full);
+      const rows = parseScheduleText(full, s.materials.map(m => m.name));
+      setPreview(rows);
+      const exams = rows.filter(r => r.type === 'exam').length;
+      const unclear = rows.filter(r => r.label.includes('غير واضح')).length;
+      setOcrMsg(`✅ الخطوة 3/3: وزّع العقل ${rows.length} حصص (${rows.length - exams} دراسة${exams ? ` + ${exams} امتحانات` : ''})${unclear ? ` — ${unclear} غير واضحة ⚠️ عدّلها بالأسفل` : ''}. راجع التوزيع على الأيام ثم احفظ كبرنامج.`);
     } catch { setOcrMsg('⚠️ تعذّر التشغيل — اكتب الجدول يدوياً.'); }
     setOcrBusy(false);
   };
-  // العقل يحوّل النص لأيام + أوقات + مواد (مع نطاقات مثل من الأحد للخميس)
   const parsePreview = () => {
     if (ocrText.trim().length < 12) { setConfirm('النص قصير أو غير واضح. هل تقصد: الأحد 8-14 مدرسة؟ اضغط تأكيد لإضافة كتلة افتراضية، أو عدّل النص.'); return; }
     const rows = parseScheduleText(ocrText, s.materials.map(m => m.name));
     if (!rows.length) { setConfirm('لم أجد أياماً ولا مواد مؤكدة في النص — لن أخمن. اكتب مثل: الأحد 8-14 فيزياء، أو اضغط تأكيد لإضافة كتلة مدرسة افتراضية للأحد.'); return; }
     setPreview(rows);
   };
-  const savePreview = () => {
-    set(p => ({ ...p, schedule: [...p.schedule, ...preview.map(r => ({ id: uid('s'), day: r.day as 0 | 1 | 2 | 3 | 4 | 5 | 6, start: r.start, end: r.end, label: r.label, type: r.type }))] }));
-    setPreview([]); setOcrText(''); setShots([]);
+  // خيار 1: حفظ الصورة بنفس شكلها كبرنامج (بلا تحليل)
+  const saveImageProgram = () => {
+    const img = shots.find(f => f.preview);
+    if (!img) return;
+    const title = progTitle.trim() || img.name || `برنامج ${programs.length + 1}`;
+    set(p => ({ ...p, programs: [...(p.programs ?? []), { id: uid('pg'), title, date: todayISO(), image: img.preview, imageName: img.name, blocks: [] }] }));
+    setProgTitle(''); setShots([]); setOcrText(''); setPreview([]); setOcrMsg(null);
+  };
+  // خيار 2: حفظ التوزيع المحلل كبرنامج (مع صورته للمرجع)
+  const saveAnalyzedProgram = () => {
+    if (!preview.length) return;
+    const img = shots.find(f => f.preview);
+    const title = progTitle.trim() || `برنامج ${programs.length + 1} — ${new Date().toLocaleDateString('ar')}`;
+    set(p => ({ ...p, programs: [...(p.programs ?? []), { id: uid('pg'), title, date: todayISO(), image: img?.preview, imageName: img?.name, blocks: preview.map(r => ({ id: uid('s'), day: r.day as 0 | 1 | 2 | 3 | 4 | 5 | 6, start: r.start, end: r.end, label: r.label, type: r.type })) }] }));
+    setProgTitle(''); setPreview([]); setOcrText(''); setShots([]); setOcrMsg(null);
   };
   const runSchedOcr = async () => {
     const imgs = shots.filter(f => f.preview);
     if (!imgs.length || ocrBusy) return;
-    setOcrBusy(true); setOcrMsg(null);
-    try {
-      const mod = await import('../core/ocr');
-      const parts: string[] = [];
-      for (const im of imgs) {
-        const r = await mod.ocrImage(im.preview!);
-        if ('text' in r) parts.push(r.text);
-      }
-      if (parts.length) { setOcrText(prev => (prev ? prev + '\n' : '') + parts.join('\n')); setOcrMsg(`✅ استُخرج النص من ${parts.length} صور — راجعه ثم اعرض المعاينة.`); }
-      else setOcrMsg('⚠️ تعذر قراءة الصورة — اكتب الجدول يدوياً.');
-    } catch { setOcrMsg('⚠️ تعذّر التشغيل — اكتب الجدول يدوياً.'); }
-    setOcrBusy(false);
+    await autoScheduleOcr(imgs);
   };
   return (
     <div>
-      <h1>🗓️ البرنامج الأسبوعي</h1>
-      <div className="small mut mb">صوّر جدول المدرسة أو الصقه نصاً — AI Vision + OCR يستخرج الأيام والساعات والحصص.</div>
+      <h1>🗓️ البرامج الأسبوعية</h1>
+      <div className="small mut mb">أضف أكثر من برنامج (مدرسة / دروس خصوصية / مراجعة). لكل صورة خياران: <b>1) حفظها بنفس شكلها</b> في الصفحة، أو <b>2) تحليل نصها وتوزيعه</b> على أيام الأحد–السبت بالأسفل.</div>
       <Glass level={2}>
-        <h2>📸 استيراد جدول (صورة / PDF / خط يد)</h2>
+        <h2>📸 برنامج جديد من صورة</h2>
         {picker.el}
-        <div className="wrap mb">
+        <label className="lbl">اسم البرنامج (اختياري)</label>
+        <input placeholder="مثال: جدول المدرسة — الفصل الأول" value={progTitle} onChange={e => setProgTitle(e.target.value)} />
+        <div className="wrap mb mt">
           <Btn sm kind="pri" onClick={() => setAttachOpen(true)}>📎 إرفاق صورة الجدول</Btn>
           <Btn sm onClick={() => setOcrText('الأحد 8-14 مدرسة، الاثنين 8-14 مدرسة، الثلاثاء 8-14 مدرسة، الأربعاء 10-11:30 اختبار فيزياء')}>📝 لصق مثال</Btn>
         </div>
         {attachOpen && <AttachSheet onClose={() => setAttachOpen(false)} onPick={o => picker.open(o.accept, o.capture)} />}
         <AttList files={shots} onRemove={i => setShots(shots.filter((_, j) => j !== i))} />
-        {!!shots.length && <div className="tiny mut mb">🖼️ الصور مرفقة للمرجع — استخرج نصها بالزر أو انسخ الأيام والساعات إلى النص ليستخرجها AI (لا قراءة تلقائية للصور).</div>}
-        <div className="wrap mb">
-          <Btn sm disabled={ocrBusy || !shots.some(f => f.preview)} onClick={runSchedOcr}>🔍 {ocrBusy ? 'استخراج…' : 'استخراج النص من الصور'}</Btn>
+        <div className="wrap mb mt">
+          <Btn sm disabled={ocrBusy || !shots.some(f => f.preview)} onClick={runSchedOcr}>🔍 {ocrBusy ? 'العقل يقرأ…' : 'تحليل الصورة وتوزيعها'}</Btn>
           {ocrMsg && <span className="tiny">{ocrMsg}</span>}
         </div>
-        <textarea placeholder="الصق هنا النص المستخرج من الصورة… مثال: الأحد 8-14 مدرسة، الاثنين فيزياء 10-11…" value={ocrText} onChange={e => setOcrText(e.target.value)} />
-        <div className="mt row"><Btn kind="pri" sm onClick={parsePreview}>👁️ عرض المعاينة قبل الحفظ</Btn>
+        <textarea placeholder="النص المستخرج من الصورة يظهر هنا للمراجعة… مثال: الأحد 8-14 مدرسة، الاثنين فيزياء 10-11…" value={ocrText} onChange={e => setOcrText(e.target.value)} />
+        <div className="mt row"><Btn sm onClick={parsePreview}>👁️ تحليل النص وتوزيعه</Btn>
           <span className="tiny mut">عند الغموض نطلب التأكيد ولا نختلق.</span></div>
         {!!preview.length && (
-          <Glass level={2} className="mt"><h3>👁️ المعاينة — عدّل قبل الحفظ</h3>
-            {preview.map((r, k) => (
-              <div key={k} className="row mt">
-                <span className="chip">{DAYS[r.day]}</span>
-                <input style={{ maxWidth: 70 }} value={r.start} onChange={e => setPreview(preview.map((x, j) => j === k ? { ...x, start: e.target.value } : x))} />
-                <span className="mut">–</span>
-                <input style={{ maxWidth: 70 }} value={r.end} onChange={e => setPreview(preview.map((x, j) => j === k ? { ...x, end: e.target.value } : x))} />
-                <input style={{ flex: 1 }} value={r.label} onChange={e => setPreview(preview.map((x, j) => j === k ? { ...x, label: e.target.value } : x))} />
-                <button className="btn sm ghost" onClick={() => setPreview(preview.filter((_, j) => j !== k))}>✕</button>
-              </div>
-            ))}
-            <div className="mt wrap"><Btn kind="pri" sm onClick={savePreview}>حفظ الجدول ✓ ({preview.length})</Btn>
-              <Btn sm onClick={() => setPreview([])}>إلغاء</Btn></div>
+          <Glass level={2} className="mt"><h3>👁️ التوزيع على الأيام — عدّل قبل الحفظ</h3>
+            <div className="tiny mut">⚠️ = صف غير مؤكد (مادة أو وقت افتراضي) — صحّحه من الصورة بجانب النص ثم احفظ. يمكنك تغيير المادة من القائمة وإضافة صفوف يدوياً.</div>
+            {preview.map((r, k) => {
+              const unsure = r.label.includes('غير واضح') || r.label.includes('أكّد المادة');
+              return (
+                <div key={k} className="mt" style={{ display: 'grid', gap: 6, padding: 10, borderRadius: 12, border: unsure ? '1px solid #fbbf24' : '1px solid rgba(255,255,255,.1)', background: unsure ? 'rgba(251,191,36,.06)' : 'transparent' }}>
+                  <div className="row">
+                    <span className="chip">{DAYS[r.day]}</span>
+                    {unsure ? <span className="chip">⚠️ يحتاج تأكيد</span> : <span className="chip">✅ مؤكد</span>}
+                    <span style={{ flex: 1 }} />
+                    <button className="btn sm ghost" onClick={() => setPreview(preview.filter((_, j) => j !== k))}>✕ حذف الصف</button>
+                  </div>
+                  <div className="row">
+                    <input style={{ maxWidth: 70 }} value={r.start} onChange={e => setPreview(preview.map((x, j) => j === k ? { ...x, start: e.target.value } : x))} />
+                    <span className="mut">–</span>
+                    <input style={{ maxWidth: 70 }} value={r.end} onChange={e => setPreview(preview.map((x, j) => j === k ? { ...x, end: e.target.value } : x))} />
+                    <select style={{ flex: 1 }} value={r.type} onChange={e => setPreview(preview.map((x, j) => j === k ? { ...x, type: e.target.value as 'school' | 'exam' | 'busy' } : x))}>
+                      <option value="school">حصة/مدرسة</option>
+                      <option value="exam">اختبار</option>
+                      <option value="busy">مشغول</option>
+                    </select>
+                  </div>
+                  <div className="row">
+                    <select style={{ flex: 1 }} value={s.materials.some(m => m.name === r.label) ? r.label : '__custom'} onChange={e => {
+                      if (e.target.value === '__custom') return;
+                      setPreview(preview.map((x, j) => j === k ? { ...x, label: e.target.value } : x));
+                    }}>
+                      <option value="__custom">مادة مخصصة…</option>
+                      {s.materials.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                      <option value="المدرسة">المدرسة</option>
+                      <option value="اختبار">اختبار</option>
+                    </select>
+                    <input style={{ flex: 1 }} value={r.label} onChange={e => setPreview(preview.map((x, j) => j === k ? { ...x, label: e.target.value } : x))} placeholder="المادة / الوصف" />
+                  </div>
+                </div>
+              );
+            })}
+            <div className="mt wrap">
+              <Btn sm onClick={() => setPreview([...preview, { day: 0, start: '08:00', end: '09:00', label: s.materials[0]?.name ?? 'المدرسة', type: 'school' }])}>➕ صف يدوي</Btn>
+            </div>
+            <div className="tiny mut mt">هذا هو التوزيع الفعلي الذي سيُحفظ — راجعه سطراً سطراً.</div>
           </Glass>
         )}
+        <div className="mt wrap">
+          <Btn sm kind="pri" disabled={!shots.some(f => f.preview)} onClick={saveImageProgram}>🖼️ الخيار 1: حفظ الصورة بنفس شكلها ({shots.filter(f => f.preview).length})</Btn>
+          <Btn sm kind="pri" disabled={!preview.length} onClick={saveAnalyzedProgram}>📊 الخيار 2: حفظ التوزيع المحلل كبرنامج ({preview.length})</Btn>
+        </div>
       </Glass>
       {confirm && <Modal onClose={() => setConfirm(null)}>
         <h2>⚠️ جزء غير واضح</h2><div className="small">{confirm}</div>
         <div className="mt row"><Btn kind="pri" sm onClick={() => {
-          set(p => ({ ...p, schedule: [...p.schedule, { id: uid('s'), day: 0, start: '08:00', end: '14:00', label: 'المدرسة (مؤكد يدوياً)', type: 'school' }] })); setConfirm(null);
+          const title = progTitle.trim() || `برنامج ${programs.length + 1}`;
+          set(p => ({ ...p, programs: [...(p.programs ?? []), { id: uid('pg'), title, date: todayISO(), blocks: [{ id: uid('s'), day: 0, start: '08:00', end: '14:00', label: 'المدرسة (مؤكد يدوياً)', type: 'school' }] }] })); setConfirm(null);
         }}>تأكيد</Btn><Btn sm onClick={() => setConfirm(null)}>إلغاء</Btn></div></Modal>}
       <div className="mt" style={{ display: 'grid', gap: 10 }}>
-        {DAYS.map((d, i) => (
-          <Glass key={i}><h3>{d}</h3>
-            {s.schedule.filter(b => b.day === i).map(b => (
-              <div key={b.id} className="between small" style={{ padding: '5px 0' }}>
-                <span>{b.label} • {b.start}–{b.end}</span>
-                <span className="row"><Chip>{b.type}</Chip>
-                  <button className="btn sm ghost" onClick={() => set(p => ({ ...p, schedule: p.schedule.filter(x => x.id !== b.id) }))}>✕</button></span></div>
-            ))}
-            {s.schedule.filter(b => b.day === i).length === 0 && <div className="tiny mut">فارغ — وقت حر متاح للدراسة.</div>}
+        {!programs.length && <Glass><div className="small mut">لا برامج بعد — أرفق صورة جدولك أعلاه واحفظها كصورة أو كتوزيع محلل.</div></Glass>}
+        {programs.map(pg => (
+          <Glass key={pg.id} level={2}>
+            <div className="between">
+              <div><b>{pg.title}</b><div className="tiny mut">{pg.date} • {pg.blocks.length} حصص{pg.image ? ' • 🖼️ بصورته الأصلية' : ''}</div></div>
+              <span className="row">{delProg === pg.id
+                ? <button className="btn sm" onClick={() => { set(p => ({ ...p, programs: (p.programs ?? []).filter(x => x.id !== pg.id) })); setDelProg(null); }}>تأكيد الحذف؟</button>
+                : <button className="btn sm ghost" onClick={() => setDelProg(pg.id)}>🗑️ حذف البرنامج</button>}</span>
+            </div>
+            {pg.image && <img src={pg.image} alt={pg.title} style={{ width: '100%', borderRadius: 14, marginTop: 10, border: '1px solid rgba(255,255,255,.12)' }} />}
+            <div className="mt" style={{ display: 'grid', gap: 8 }}>
+              {DAYS.map((d, i) => {
+                const rows = pg.blocks.filter(b => b.day === i);
+                if (!rows.length) return null;
+                return (
+                  <div key={i}><div className="small" style={{ fontWeight: 700 }}>{d}</div>
+                    {rows.map(b => (
+                      <div key={b.id} className="between small" style={{ padding: '5px 0' }}>
+                        <span>{b.label} • {b.start}–{b.end}</span>
+                        <span className="row"><Chip>{b.type}</Chip>
+                          <button className="btn sm ghost" onClick={() => set(p => ({ ...p, programs: (p.programs ?? []).map(x => x.id === pg.id ? { ...x, blocks: x.blocks.filter(y => y.id !== b.id) } : x) }))}>✕</button></span></div>
+                    ))}
+                  </div>
+                );
+              })}
+              {!pg.blocks.length && <div className="tiny mut">محفوظ كصورة فقط — استخدم زر التحليل أعلاه لإضافة توزيعه لاحقاً (احذف وأعد الإضافة بالتوزيع).</div>}
+            </div>
           </Glass>
         ))}
       </div>
@@ -601,9 +656,10 @@ export function Simulator() {
   const [qStart, setQStart] = useState(Date.now());
   const [res, setRes] = useState<{ prompt: string; timeMs: number; sim: number; ok: boolean; skipped: boolean; answer: string; mine: string }[]>([]);
   const [order, setOrder] = useState<string[]>([]);
-  // اسئلة حقيقية من بنكك — موزعة على المفاهيم
+  // اسئلة حقيقية من بنكك — محتوى فقط (لا أسئلة عامة)، موزعة على المفاهيم
+  const contentBank = s.recallBank.filter(q => (q.focus && q.focus !== 'general') || q.origin === 'exam-pattern');
   const startRun = () => {
-    const ids = [...s.recallBank].sort(() => Math.random() - 0.5).slice(0, Math.min(cfg.n, s.recallBank.length)).map(q => q.id);
+    const ids = [...contentBank].sort(() => Math.random() - 0.5).slice(0, Math.min(cfg.n, contentBank.length)).map(q => q.id);
     setOrder(ids); setRes([]); setQi(0); setAns('');
     setLeft(cfg.mins * 60); setQStart(Date.now()); setRun(true);
   };
@@ -647,9 +703,9 @@ export function Simulator() {
   };
   const mm = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
   const cls = left > cfg.mins * 30 ? 'timer-ok' : left > 60 ? 'timer-warn' : 'timer-bad';
-  if (!s.recallBank.length) return (
+  if (!contentBank.length) return (
     <Glass className="mt"><h2>⏱️ محاكي ضغط الوقت</h2>
-      <div className="small mut">المحاكي يستخدم أسئلتك الحقيقية — أضف درساً أولاً من تبويب المواد.</div></Glass>
+      <div className="small mut">المحاكي يستخدم أسئلة محتواك الحقيقي — أضف درساً بنص مستخرج أولاً من تبويب المواد.</div></Glass>
   );
   return (
     <div>
@@ -669,7 +725,7 @@ export function Simulator() {
           <div className="between"><h2 className={cls} style={{ fontSize: 28 }}>{mm}</h2>
             <Chip>سؤال {qi + 1}/{order.length}</Chip></div>
           <Bar v={((qi) / order.length) * 100} />
-          <div className="small mt" style={{ fontWeight: 700 }}>{q.prompt}</div>
+          <div className="small mt" style={{ fontWeight: 700 }}><AutoMath text={q.prompt} /></div>
           <div className="mt"><input placeholder="إجابتك السريعة…" value={ans} onChange={e => setAns(e.target.value)} /></div>
           <div className="mt wrap">
             <Btn kind="pri" sm onClick={() => answerQ(false)}>التالي ✓</Btn>

@@ -1,8 +1,16 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { AppState, Material } from './types';
 import { addDays, todayISO, uid } from './types';
+import { extractElements } from './ai';
+import { attachMath } from './brain';
 
 const KEY = 'focus30-v2';
+
+const GENERIC_Q = ['اشرح من ذاكرتك', 'ما موضوعه بكلماتك', 'ما موضوع درس', 'ماذا تعلمت من الدرس', 'لخص الدرس من ذاكرتك', 'ما مفهومك عن', 'ما مفهوم هذا الدرس'];
+
+function isGenericPrompt(t: string): boolean {
+  return GENERIC_Q.some(g => (t ?? '').includes(g));
+}
 
 function seed(): AppState {
   // يبدأ التطبيق فارغاً تماماً: لا دروس ولا أسئلة ولا مهام مقترحة
@@ -28,6 +36,7 @@ function seed(): AppState {
     lang: 'ar', materials, flashcards: [], recallBank: [], attempts: [], tasks: [],
     errors: [],
     schedule: [],
+    programs: [],
     plan, planGoal: 'هدفي للتفوق — أحدده بعد إضافة موادي',
     exams: [],
     city: [
@@ -59,10 +68,45 @@ export function Store({ children }: { children: React.ReactNode }) {
         if (!Array.isArray(p.blackouts)) p.blackouts = [];
         if (!Array.isArray(p.diagrams)) p.diagrams = [];
         if (Array.isArray(p.exams)) p.exams = p.exams.map(x => ({ attachments: [], ...x }));
+        // ترحيل البرامج الأسبوعية: من قائمة واحدة إلى برامج متعددة
+        if (!Array.isArray((p as unknown as { programs?: unknown }).programs)) {
+          const old = Array.isArray(p.schedule) ? p.schedule : [];
+          (p as AppState).programs = old.length
+            ? [{ id: uid('pg'), title: 'برنامجي الأول', date: todayISO(), blocks: old }]
+            : [];
+        }
+        // تنظيف الأسئلة/البطاقات العامة — ممنوعة نهائياً (محتوى فقط)
+        if (Array.isArray(p.recallBank)) p.recallBank = p.recallBank.filter(q => !isGenericPrompt(q.prompt));
+        // تنظيف أسئلة تالفة من مستخرج قديم (مثال: "ما القانون الذي يربط 0؟")
+        if (Array.isArray(p.recallBank)) p.recallBank = p.recallBank.filter(q => !/يربط [\d\s.,]+؟/.test(q.prompt ?? ''));
+        if (Array.isArray(p.flashcards)) p.flashcards = p.flashcards.filter(f => !isGenericPrompt(f.front));
         // ترحيل الحقول الجديدة للبيانات القديمة (بدون فقدان)
         for (const m of p.materials ?? []) for (const u of m.units ?? []) for (const l of u.lessons ?? []) {
           if (!Array.isArray(l.sections)) l.sections = (l.sourceText ?? '').split(/[\n]+/).map(s => s.trim()).filter(Boolean);
           if (!Array.isArray(l.elements)) l.elements = [];
+          // تعبئة العناصر للدروس القديمة من نصها — حتى تعمل البطاقات والخرائط والتذكر عليها
+          if (!l.elements.length && (l.sourceText ?? '').trim().length >= 12) {
+            try { l.elements = attachMath(extractElements(l.sourceText, l.id), l.sourceText).elements; } catch { /* ignore */ }
+          } else if ((l.elements ?? []).some(e => e.kind === 'formula' && !e.latex)) {
+            // دروس قديمة بلا حالة معادلات — ألحق التحقق دون تغيير النص
+            try {
+              const byId = new Map(attachMath(l.elements, l.sourceText ?? '').elements.map(e => [e.id, e] as const));
+              l.elements = l.elements.map(e => byId.get(e.id) ?? e);
+            } catch { /* ignore */ }
+          }
+          // إصلاح عناصر المستخرج القديم المتسربة (تسميات فيها شرح عربي: "… = … حيث …")
+          if ((l.elements ?? []).some(e => e.kind === 'formula' && / حيث /.test(e.label ?? '')) && (l.sourceText ?? '').trim().length >= 12) {
+            try {
+              const fresh = attachMath(extractElements(l.sourceText, l.id), l.sourceText).elements;
+              if (fresh.length) {
+                const staleIds = new Set(l.elements.filter(e => / حيث /.test(e.label ?? '')).map(e => e.id));
+                const kept = l.elements.filter(e => !staleIds.has(e.id));
+                const keptTexts = new Set(kept.map(e => e.text));
+                l.elements = kept.concat(fresh.filter(f => !keptTexts.has(f.text)));
+                p.recallBank = (p.recallBank ?? []).filter(q => !(q.sourceLessonId === l.id && q.elementId && staleIds.has(q.elementId)));
+              }
+            } catch { /* ignore */ }
+          }
           for (const [ci, c] of (l.concepts ?? []).entries()) {
             if (c.recallStrength === undefined) c.recallStrength = Math.max(10, (c.mastery ?? 20) - 10);
             if (!Array.isArray(c.prereqs)) c.prereqs = ci > 0 ? [l.concepts[ci - 1].id] : [];
@@ -107,6 +151,7 @@ export function Store({ children }: { children: React.ReactNode }) {
       try {
         const stripped: AppState = {
           ...s,
+          programs: (s.programs ?? []).map(pg => ({ ...pg, image: undefined })),
           materials: s.materials.map(m => ({
             ...m, units: m.units.map(u => ({
               ...u, lessons: u.lessons.map(l => ({

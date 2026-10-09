@@ -1,8 +1,12 @@
 import { useState } from 'react';
-import { Brain, GraduationCap, Lightbulb, Send, Sparkles, Map as MapIcon, Telescope } from 'lucide-react';
+import { Brain, GraduationCap, Lightbulb, Send, Sparkles, Map as MapIcon, Telescope, Cpu } from 'lucide-react';
 import { useStore, addXP } from '../core/store';
 import { coachAdvices, forgettingQueue, predictQuestions, similarity, gradeOf, weaknessMap } from '../core/ai';
+import { buildBrainContext } from '../core/brain';
+import { PROVIDERS, clearRemoteCfg, getProviderId, getRemoteCfg, remoteExplain, setProviderId, setRemoteCfg } from '../core/providers';
+import { runSelfTests, type SelfTest } from '../core/selftest';
 import { Btn, Chip, Glass, Sheet } from '../ui/kit';
+import { AutoMath } from '../ui/math';
 import { EmptyContent } from './study';
 
 export type TutorLevel = 1 | 2 | 3;
@@ -17,6 +21,10 @@ export function Tutor({ go }: { go?: (t: string) => void }) {
   const [chat, setChat] = useState<{ me: string; ai: string; src: string; grounded: boolean }[]>([]);
   const [checkAns, setCheckAns] = useState('');
   const [verdict, setVerdict] = useState<string | null>(null);
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteOut, setRemoteOut] = useState<string | null>(null);
+  const [remoteErr, setRemoteErr] = useState<string | null>(null);
+  const providerId = getProviderId();
   const concepts = s.materials.flatMap(m => m.units.flatMap(u => u.lessons.flatMap(l => l.concepts.map(c => ({ ...c, lesson: l.title, mat: m.name, ref: l.sourceRef })))));
   const avg = concepts.length ? Math.round(concepts.reduce((a, c) => a + c.mastery, 0) / concepts.length) : 0;
   const relatedOf = (query: string) => {
@@ -82,7 +90,17 @@ export function Tutor({ go }: { go?: (t: string) => void }) {
     if (!query && (act === 'practice' || act === 'exam')) { go?.(act === 'exam' ? 'study-tests' : 'study-recall'); return; }
     if (!query) return;
     answer(query, act, level);
-    setQ('');
+    setQ(''); setRemoteOut(null); setRemoteErr(null);
+  };
+  const askRemote = async () => {
+    const lastQ = q.trim() || chat[chat.length - 1]?.me || '';
+    if (!lastQ || remoteBusy) return;
+    setRemoteBusy(true); setRemoteOut(null); setRemoteErr(null);
+    const rel = relatedOf(lastQ);
+    const r = await remoteExplain(lastQ, rel?.detail ?? '', buildBrainContext(s));
+    if ('error' in r) setRemoteErr(r.error);
+    else setRemoteOut(r.text);
+    setRemoteBusy(false);
   };
   return (
     <div>
@@ -109,7 +127,7 @@ export function Tutor({ go }: { go?: (t: string) => void }) {
             <div className="row" style={{ justifyContent: 'flex-end' }}><div className="glass pad" style={{ maxWidth: '85%', background: 'linear-gradient(135deg,rgba(34,211,238,.18),rgba(167,139,250,.18))' }}><div className="small">{c.me}</div></div></div>
             <div className="row mt" style={{ alignItems: 'flex-start' }}><GraduationCap size={16} color="#a78bfa" />
               <div style={{ flex: 1 }}><Glass>
-                <div className="small" style={{ whiteSpace: 'pre-line' }}>{c.ai}</div>
+                <div className="small" style={{ whiteSpace: 'pre-line' }}><AutoMath text={c.ai} /></div>
                 <div className="tiny mt" style={{ color: c.grounded ? '#34d399' : '#fbbf24' }}>📚 {c.src}</div>
               </Glass></div></div>
           </div>
@@ -117,6 +135,14 @@ export function Tutor({ go }: { go?: (t: string) => void }) {
       </div>
       <div className="row mt"><input placeholder="اسأل عن درس مرفوع… (يطابق مصادرك تلقائياً)" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} />
         <Btn kind="pri" onClick={send}><Send size={14} /></Btn></div>
+      <div className="mt wrap">
+        <Chip on={providerId === 'local'}>🧠 المحرك: {providerId === 'local' ? 'محلي مجاني' : 'خارجي (اختياري)'}</Chip>
+        {providerId !== 'local' && <Btn sm disabled={remoteBusy} onClick={askRemote}>✨ {remoteBusy ? 'يتصل بالمزود…' : 'صياغة خارجية محسّنة'}</Btn>}
+      </div>
+      {remoteErr && <Glass className="mt"><div className="small">⚠️ {remoteErr}</div></Glass>}
+      {remoteOut && <Glass level={2} className="mt pop"><h3>✨ صياغة خارجية [External Knowledge]</h3>
+        <div className="small" style={{ whiteSpace: 'pre-line' }}><AutoMath text={remoteOut} /></div>
+        <div className="tiny mut mt">من مزودك الخارجي — تحقق منها مقابل مصدرك قبل الاعتماد.</div></Glass>}
       <div className="tiny mut mt">🔒 خارج المصدر يُوسم [External Knowledge] — لا يُقدَّم كحقيقة من مصدرك أبداً.</div>
     </div>
   );
@@ -270,7 +296,8 @@ export function AIAssistant() {
   const [open, setOpen] = useState(false);
   return (
     <div><h1>✨ مساعد الدراسة + AI Home</h1>
-      <div className="grid2">
+      <ProviderSettings />
+      <div className="grid2 mt">
         {[
           ['🤖 المعلّم', 'شرح وتدريب سقراطي', 'ai-tutor'], ['🧭 المدرّب', 'قرارات استراتيجية مبررة', 'ai-coach'],
           ['🌍 أمثلة واقعية', 'من السيارة والسوق والمطبخ', 'ai-examples'], ['📖 قصص', 'تذكر دون تحريف', 'ai-stories'],
@@ -293,3 +320,57 @@ export function AIAssistant() {
 }
 
 export function BrainIcon() { return <Brain size={14} />; }
+
+/** محرك AI: اختيار النموذج (محلي مجاني افتراضياً) + مفاتيحك + فحص الجودة — بلا اشتراك إجباري */
+export function ProviderSettings() {
+  const [sel, setSel] = useState(getProviderId());
+  const [cfg, setCfg] = useState(getRemoteCfg());
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [tests, setTests] = useState<SelfTest[] | null>(null);
+  const [running, setRunning] = useState(false);
+  const def = PROVIDERS.find(p => p.id === sel) ?? PROVIDERS[0];
+  return (
+    <Glass level={2} className="glow-cyan">
+      <div className="between"><h2><Cpu size={14} /> محرك AI المركزي</h2><Chip on={sel === 'local'}>{sel === 'local' ? 'محلي مجاني' : 'خارجي'}</Chip></div>
+      <div className="small mut">العقل المركزي يعمل فوق كل الأنظمة. الافتراضي محلي ومجاني وغير محدود — الخارجي اختياري بمفاتيحك أنت.</div>
+      <label className="lbl">النموذج النشط (يُبدَّل بضغطة)</label>
+      <div className="wrap">{PROVIDERS.map(p => <Chip key={p.id} on={sel === p.id} onClick={() => { setSel(p.id); setProviderId(p.id); setSaved(false); }}>{p.label}</Chip>)}</div>
+      <div className="small mt"><b>حدوده المعلنة:</b> <span className="mut">{def.limits}</span></div>
+      {sel !== 'local' && (
+        <div className="mt">
+          <label className="lbl">baseURL (واجهة OpenAI-compatible لمزودك المجاني/الخاص)</label>
+          <input placeholder="https://api.example.com/v1" value={cfg.baseURL} onChange={e => setCfg({ ...cfg, baseURL: e.target.value })} dir="ltr" />
+          <label className="lbl">المفتاح (يُحفظ في جهازك فقط)</label>
+          <input type="password" placeholder="sk-…" value={cfg.apiKey} onChange={e => setCfg({ ...cfg, apiKey: e.target.value })} dir="ltr" />
+          <label className="lbl">اسم النموذج</label>
+          <input placeholder="مثال: gpt-4o-mini" value={cfg.model} onChange={e => setCfg({ ...cfg, model: e.target.value })} dir="ltr" />
+          <div className="mt wrap">
+            <Btn sm kind="pri" onClick={() => { setRemoteCfg(cfg); setSaved(true); setTestMsg(null); }}>حفظ في جهازي ✓</Btn>
+            <Btn sm onClick={() => { clearRemoteCfg(); setCfg({ baseURL: '', apiKey: '', model: '' }); setSaved(false); }}>مسح المفاتيح</Btn>
+            <Btn sm disabled={testing} onClick={() => void (async () => {
+              setTesting(true); setTestMsg('اختبار الاتصال…');
+              const r = await remoteExplain('قل: تم', '', { avgMastery: 0, weakMat: '', weakMastery: 0, dueCount: 0, openErrors: 0, daysLeft: null, planGoal: '', recentAccuracy: -1, recentCount: 0, streak: 0, conceptsCount: 0, lessonsCount: 0 });
+              setTestMsg('error' in r ? `⚠️ ${r.error}` : `✅ متصل — رد المزود: ${r.text.slice(0, 80)}`);
+              setTesting(false);
+            })()}>{testing ? 'يختبر…' : 'اختبار الاتصال'}</Btn>
+          </div>
+          {saved && <div className="tiny mt" style={{ color: '#34d399' }}>✓ محفوظ محلياً — لن يعمل إلا ضمن حصص مزودك.</div>}
+          {testMsg && <div className="small mt">{testMsg}</div>}
+        </div>
+      )}
+      <div className="mt wrap"><Btn sm kind="pri" disabled={running} onClick={() => { setRunning(true); setTimeout(() => { setTests(runSelfTests()); setRunning(false); }, 30); }}>{running ? 'يفحص…' : '🧪 تشغيل فحص الجودة'}</Btn></div>
+      {tests && (
+        <div className="mt" style={{ display: 'grid', gap: 6 }}>
+          {tests.map((t, i) => (
+            <div key={i} className="task"><span>{t.passed ? '✅' : '❌'}</span>
+              <div style={{ flex: 1 }}><div className="small" style={{ fontWeight: 600 }}>{t.name}</div>
+                <div className="tiny mut">{t.detail}</div></div></div>
+          ))}
+          <div className="tiny mut">الفشل هنا يعني خللاً حقيقياً — أصلحه قبل اعتبار الميزة مكتملة.</div>
+        </div>
+      )}
+    </Glass>
+  );
+}

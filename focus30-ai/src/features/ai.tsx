@@ -125,7 +125,8 @@ export function Tutor({ go }: { go?: (t: string) => void }) {
 export function Coach() {
   const { s, set } = useStore();
   const [showErrors, setShowErrors] = useState(false);
-  const adv = coachAdvices(s);
+  const [rejected, setRejected] = useState<string[]>([]);
+  const adv = coachAdvices(s).filter(a => !rejected.includes(a.title));
   const runAct = (act: 'night' | 'review3') => {
     if (act === 'night') { set(p => ({ ...p, nightMode: true })); return; }
     const top = forgettingQueue(s).slice(0, 3);
@@ -152,6 +153,7 @@ export function Coach() {
           <div className="mt wrap">
             {a.act && <Btn sm kind="pri" onClick={() => runAct(a.act!)}>{a.act === 'night' ? '🌙 تفعيل وضع الليلة' : '⚡ إنشاء 3 مهام مراجعة'}</Btn>}
             <Btn sm onClick={() => setShowErrors(!showErrors)}>🗃️ بنك الأخطاء</Btn>
+            <button className="btn sm ghost" onClick={() => setRejected([...rejected, a.title])}>رفض التوصية ✕</button>
           </div>
         </Glass>
       ))}

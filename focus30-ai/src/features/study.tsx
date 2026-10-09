@@ -3,7 +3,9 @@ import { Brain, Camera, Link2, Plus, Shuffle } from 'lucide-react';
 import { useStore, addXP } from '../core/store';
 import type { Flashcard, Lesson, SourceKind } from '../core/types';
 import { addDays, bandColor, bandOf, todayISO, uid } from '../core/types';
-import { analyzeContent, analyzeExam, buildGraph, buildMindmap, conceptToCards, coverageOf, detectExamQuestions, detectMaterial, errorTypeOf, extractElements, filterByMode, fsrsNext, generateFromElements, generateRecall, gradeOf, masteryAfter, qualityPass, similarity, synthExamQs, traceOf, visualize } from '../core/ai';
+import { analyzeExam, buildMindmap, coverageOf, detectExamQuestions, detectMaterial, errorTypeOf, filterByMode, fsrsNext, gradeOf, masteryAfter, qualityPass, similarity, synthExamQs, traceOf, visualize } from '../core/ai';
+import { adaptiveLevel, chooseNext, runIngest } from '../core/brain';
+function lessonMeta0(id: string, title: string, sourceRef: string) { return { id, title, sourceRef }; }
 import { Bar, Btn, Chip, Glass, MasteryDot, MindView, Modal, PickSheet, Ring, Sheet } from '../ui/kit';
 import { AttachSheet, AttList, collectFiles, useFilePicker, type AttachOption, type AttFile } from '../ui/attach';
 
@@ -86,6 +88,8 @@ export function Materials({ go }: { go: (t: string) => void }) {
   );
   const sugName = s.materials.find(m => m.id === suggestion.matId)?.name;
   const [skipNote, setSkipNote] = useState<string | null>(null);
+  const [brainRep, setBrainRep] = useState<{ report: import('../core/brain').BrainReport; title: string; lessonId: string } | null>(null);
+  const [reviewLesson, setReviewLesson] = useState<string | null>(null);
   // حذف درس مع كل ما تولّد منه (بطاقات + أسئلة + مهام مرتبطة — بما فيها المرتبطة بمعرف الدرس نفسه)
   const deleteLesson = (lid: string) => {
     const cids = new Set(
@@ -115,17 +119,16 @@ export function Materials({ go }: { go: (t: string) => void }) {
     const ref = bits.join(' — ');
     const title = lessonTitle.trim() || text.trim().slice(0, 40) || files[0]?.name || linkUrl.trim() || 'درس جديد';
     const lid = uid('l');
-    // مفاهيم نصية فقط من نص حقيقي — لا مفاهيم وهمية من أسماء الملفات
-    const a = hasText && qualityPass(text) ? analyzeContent(text.trim(), lid, ref) : null;
-    const rawConcepts = (a?.concepts ?? [])
-      .filter(c => qualityPass(c.detail))
-      .map(c => ({ ...c, lessonId: lid }));
-    const skipped = (a?.concepts.length ?? 0) - rawConcepts.length;
-    const concepts = buildGraph(rawConcepts);
-    const elements = hasText && qualityPass(text) ? extractElements(text.trim(), lid) : [];
+    // العقل المركزي: INPUT → UNDERSTAND → EXTRACT → STRUCTURE → REASON → GENERATE → VALIDATE
+    const ingest = hasText && qualityPass(text)
+      ? runIngest(text.trim(), lessonMeta0(lid, title, ref), targetMat.name, s.exams.flatMap(e => e.analysis.topics))
+      : null;
+    const concepts = ingest?.concepts ?? [];
+    const elements = ingest?.elements ?? [];
+    const skipped = ingest?.skipped ?? 0;
+    const a = ingest ? { summary: ingest.summary, sections: ingest.sections } : null;
     // عناصر المخططات المرفقة من أداة المخططات لاحقاً تُربط هنا
     const imgs = files.filter(f => f.preview);
-    const lessonMeta = { id: lid, title, sourceRef: ref };
     const nl: Lesson = {
       id: lid, unitId: targetMat.units[0]?.id ?? 'u1', title,
       sourceText: text.trim(), sourceRef: ref, sections: a?.sections ?? [], elements,
@@ -134,9 +137,8 @@ export function Materials({ go }: { go: (t: string) => void }) {
       mastery: concepts.length ? Math.round(concepts.reduce((x, c) => x + c.mastery, 0) / concepts.length) : 20,
       attachments: files.map(f => ({ name: f.name, preview: f.preview })),
     };
-    const cards: Flashcard[] = concepts.flatMap(c => conceptToCards(c, lessonMeta)).slice(0, 8);
-    const elQs = generateFromElements(lessonMeta, elements, concepts, s.exams.flatMap(e => e.analysis.topics), 14);
-    const rq = [...elQs, ...generateRecall(lessonMeta, concepts, 6)];
+    const cards: Flashcard[] = ingest?.cards ?? [];
+    const rq: import('../core/types').RecallQ[] = ingest?.questions ?? [];
     // بطاقات نصية لكل درس — تُظهر أن محتوى أُضيف (لا تعرض الصورة نفسها):
     // من النص إن وُجد، وإلا بطاقة مراجعة مصدر توجه لفتح الدرس وإكماله
     const srcCards: Flashcard[] = concepts.length ? [] : [{
@@ -163,9 +165,11 @@ export function Materials({ go }: { go: (t: string) => void }) {
       flashcards: [...p.flashcards, ...cards, ...srcCards], recallBank: [...p.recallBank, ...rq, ...srcQs],
     }));
     resetForm(); addXP(set, 30);
-    if (skipped > 0) setSkipNote(`🧹 تم تخطي ${skipped} مقاطع ضعيفة الجودة (حروف عشوائية) — لن تُبنى عليها أسئلة.`);
+    if (ingest) {
+      setBrainRep({ report: ingest.report, title, lessonId: lid });
+      setSkipNote(null);
+    } else if (skipped > 0) setSkipNote(`🧹 تم تخطي ${skipped} مقاطع ضعيفة الجودة (حروف عشوائية) — لن تُبنى عليها أسئلة.`);
     else if (!concepts.length) setSkipNote(`📚 حُفظ «${title}» وظهر في البطاقات والتذكر والاختبارات — استخدم زر الاستخراج من الصورة أو أضف سطراً واحداً لتتولد أسئلة دقيقة.`);
-    else setSkipNote(`✅ أُضيف «${title}»: ${concepts.length} مفاهيم + ${elements.length} عناصر مستخرجة + ${elQs.length} أسئلة من المحتوى — تجدها في البطاقات والتذكر والاختبارات.`);
   };
 
   return (
@@ -175,6 +179,9 @@ export function Materials({ go }: { go: (t: string) => void }) {
           <Btn kind="pri" sm onClick={() => setOpen(true)}><Plus size={14} /> إضافة محتوى</Btn></div></div>
       <div className="small mut mb">المادة ← الوحدة ← الدرس ← المفاهيم (بدون نظام الفصول). كل عنصر مرتبط بمصدره الأصلي.</div>
       {skipNote && <Glass level={2} className="mb"><div className="between"><span className="small">{skipNote}</span><Btn sm onClick={() => setSkipNote(null)}>✕</Btn></div></Glass>}
+      {brainRep && <BrainPanel title={brainRep.title} report={brainRep.report} go={go}
+        onReview={() => setReviewLesson(brainRep.lessonId)} onClose={() => setBrainRep(null)} />}
+      {reviewLesson && <GeneratedReview lessonId={reviewLesson} onClose={() => setReviewLesson(null)} go={go} />}
       {s.materials.map(m => {
         const lessonsN = m.units.reduce((a, u) => a + u.lessons.length, 0);
         return (
@@ -290,6 +297,98 @@ export function Materials({ go }: { go: (t: string) => void }) {
       {pack && <PackSheet lessonId={pack} onClose={() => setPack(null)} go={go} />}
       {concept && <ConceptSheet conceptId={concept} onClose={() => setConcept(null)} go={go} />}
     </div>
+  );
+}
+
+/** 36+43. تقرير العقل المركزي: الأدوات المنسقة + الثقة + الفحص — لا نتائج مجهولة */
+export function BrainPanel({ title, report, go, onReview, onClose }: {
+  title: string; report: import('../core/brain').BrainReport; go: (t: string) => void;
+  onReview: () => void; onClose: () => void;
+}) {
+  const confAr = { high: 'عالية 🟢', mid: 'متوسطة 🟡', low: 'منخفضة ⚪' } as const;
+  return (
+    <Glass level={2} className="mb glow-cyan pop">
+      <div className="between"><h2>🧠 العقل المركزي حلّل «{title}»</h2><Btn sm onClick={onClose}>✕</Btn></div>
+      <div className="small mut">الثقة: {confAr[report.confidence]} — {report.confidenceWhy}</div>
+      <div className="mt" style={{ display: 'grid', gap: 4 }}>
+        {report.steps.map((st, i) => (
+          <div key={i} className="small"><span>{st.ok ? '✅' : '⚠️'}</span> <b>{st.tool}:</b> {st.label} — <span className="mut">{st.detail}</span></div>
+        ))}
+      </div>
+      <div className="small mt">📋 {report.profile.label}: {report.profile.note}</div>
+      <div className="small">🔍 الفحص الذاتي: مقبول {report.checks.passed}{report.checks.failed.length ? ` • مرفوض ${report.checks.failed.length} (${report.checks.failed[0].reason})` : ' بلا رفض'}</div>
+      <div className="small">📊 {report.counts.concepts} مفاهيم • {report.counts.elements} عناصر • {report.counts.questions} أسئلة • {report.counts.cards} بطاقات • التغطية {report.counts.coverage}%</div>
+      <div className="mt wrap">
+        <Btn kind="pri" sm onClick={() => { onClose(); go(report.nextAction.go); }}>{report.nextAction.title} ⚡</Btn>
+        <Btn sm onClick={onReview}>👁️ مراجعة وتعديل المولّد (أنت المتحكم)</Btn>
+      </div>
+    </Glass>
+  );
+}
+
+/** 42. الإنسان المتحكم: تعديل/حذف أي سؤال أو بطاقة — ويُحفظ التصحيح */
+export function GeneratedReview({ lessonId, onClose, go }: { lessonId: string; onClose: () => void; go: (t: string) => void }) {
+  const { s, set } = useStore();
+  const [eq, setEq] = useState<string | null>(null);
+  const [qp, setQp] = useState(''); const [qa, setQa] = useState('');
+  const [ec, setEc] = useState<string | null>(null);
+  const [cf, setCf] = useState(''); const [cb, setCb] = useState('');
+  const lesson = s.materials.flatMap(m => m.units.flatMap(u => u.lessons)).find(l => l.id === lessonId);
+  const qs = s.recallBank.filter(q => q.sourceLessonId === lessonId);
+  const cards = s.flashcards.filter(f => f.sourceLessonId === lessonId);
+  const nav = (r: string) => { onClose(); go(r); };
+  return (
+    <Sheet title={`👁️ مراجعة المولّد: ${lesson?.title ?? ''}`} onClose={onClose}>
+      <div className="tiny mut">عدّل أو احذف — تصحيحك يُحفظ فوراً ويُستخدم في الجلسات القادمة. لا شيء نهائي دون موافقتك.</div>
+      <h3 className="mt">❓ الأسئلة ({qs.length})</h3>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {qs.map(q => (
+          <div key={q.id}>
+            <div className="task">
+              <div style={{ flex: 1 }}><div className="small" style={{ fontWeight: 600 }}>{q.prompt.slice(0, 70)}</div>
+                <div className="tiny mut">الفقرة {q.section + 1} • مستوى {q.level ?? 2} • {q.focus}</div></div>
+              <Btn sm onClick={() => { setEq(q.id); setQp(q.prompt); setQa(q.answer); }}>تعديل</Btn>
+              <button className="btn sm ghost" onClick={() => set(p => ({ ...p, recallBank: p.recallBank.filter(x => x.id !== q.id) }))}>🗑️</button>
+            </div>
+            {eq === q.id && (
+              <Glass level={2} className="mt"><label className="lbl">السؤال</label>
+                <textarea value={qp} onChange={e => setQp(e.target.value)} />
+                <label className="lbl">الإجابة النموذجية</label>
+                <textarea value={qa} onChange={e => setQa(e.target.value)} />
+                <div className="mt wrap"><Btn kind="pri" sm disabled={qp.trim().length < 8 || qa.trim().length < 4} onClick={() => {
+                  set(p => ({ ...p, recallBank: p.recallBank.map(x => x.id === q.id ? { ...x, prompt: qp.trim(), answer: qa.trim() } : x) }));
+                  setEq(null);
+                }}>حفظ التصحيح ✓</Btn><Btn sm onClick={() => setEq(null)}>إلغاء</Btn></div></Glass>
+            )}
+          </div>
+        ))}
+        {!qs.length && <div className="small mut">لا أسئلة محفوظة لهذا الدرس.</div>}
+      </div>
+      <h3 className="mt">🃏 البطاقات ({cards.length})</h3>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {cards.map(c => (
+          <div key={c.id}>
+            <div className="task"><div style={{ flex: 1 }}><div className="small" style={{ fontWeight: 600 }}>{c.front.slice(0, 70)}</div>
+              <div className="tiny mut">{c.kind}</div></div>
+              <Btn sm onClick={() => { setEc(c.id); setCf(c.front); setCb(c.back); }}>تعديل</Btn>
+              <button className="btn sm ghost" onClick={() => set(p => ({ ...p, flashcards: p.flashcards.filter(x => x.id !== c.id) }))}>🗑️</button>
+            </div>
+            {ec === c.id && (
+              <Glass level={2} className="mt"><label className="lbl">الوجه</label>
+                <textarea value={cf} onChange={e => setCf(e.target.value)} />
+                <label className="lbl">الظهر</label>
+                <textarea value={cb} onChange={e => setCb(e.target.value)} />
+                <div className="mt wrap"><Btn kind="pri" sm disabled={cf.trim().length < 2 || cb.trim().length < 2} onClick={() => {
+                  set(p => ({ ...p, flashcards: p.flashcards.map(x => x.id === c.id ? { ...x, front: cf.trim(), back: cb.trim() } : x) }));
+                  setEc(null);
+                }}>حفظ التصحيح ✓</Btn><Btn sm onClick={() => setEc(null)}>إلغاء</Btn></div></Glass>
+            )}
+          </div>
+        ))}
+        {!cards.length && <div className="small mut">لا بطاقات محفوظة لهذا الدرس.</div>}
+      </div>
+      <div className="mt wrap"><Btn kind="pri" sm onClick={() => nav('study-recall')}>ابدأ التذكر 🧠</Btn><Btn sm onClick={onClose}>إغلاق</Btn></div>
+    </Sheet>
   );
 }
 
@@ -464,6 +563,8 @@ export function Recall() {
   const [picked, setPicked] = useState<string | null>(null);
   const [drill, setDrill] = useState<string | null>(null); // elementId قيد المعالجة
   const [doneIds, setDoneIds] = useState<string[]>([]);
+  const [streak, setStreak] = useState({ ok: 0, bad: 0 });
+  const [pickReason, setPickReason] = useState('');
   if (!s.recallBank.length) return (<div><h1>🧠 تذكّر نشط</h1>
     <EmptyContent what="أسئلة تذكّر نشط" hint="أضف أول مصدر دراسي لإنشاء الأسئلة." /></div>);
   const lessons = s.materials.flatMap(m => m.units.flatMap(u => u.lessons.map(l => ({ ...l, mat: m.name }))));
@@ -552,6 +653,7 @@ export function Recall() {
       }],
     }));
     if (ok) addXP(set, 12); else if (g === 'partial') addXP(set, 5);
+    setStreak(g === 'correct' ? { ok: streak.ok + 1, bad: 0 } : g === 'partial' ? { ok: 0, bad: 0 } : { ok: 0, bad: streak.bad + 1 });
     // سلم المعالجة: خطأ → أسئلة نفس العنصر بصيغ أخرى أولاً
     if (!ok && q.elementId) setDrill(q.elementId);
     if (ok && drill && q.elementId === drill) setDrill(null);
@@ -571,14 +673,17 @@ export function Recall() {
     else setTried(true);
   };
   const next = () => {
-    // أولوية المعالجة: أسئلة غير المجتازة من نفس العنصر
-    let nxt = i + 1;
-    if (drill) {
-      const idx = qs.findIndex((x, xi) => xi > i && x.elementId === drill && !doneIds.includes(x.id));
-      if (idx >= 0) nxt = idx;
-      else setDrill(null);
-    }
-    setI(nxt); setTried(false); setMine(''); setPicked(null); setFb(null); setSim(null); setShowHint(false); setT0(Date.now());
+    // العقل يختار التالي: معالجة → خطأ سابق → مستحق → أضعف + صعوبة ديناميكية
+    const strengths = new Map<string, number>();
+    for (const m of s.materials) for (const u of m.units) for (const l of u.lessons) for (const c of l.concepts) strengths.set(c.id, c.recallStrength);
+    const errConcepts = [...new Set(s.errors.filter(e => !e.resolved).map(e => e.conceptId))];
+    const { bias, note } = adaptiveLevel(streak.ok, streak.bad);
+    const { q: nxt, reason } = chooseNext(qs, { drillElementId: drill, doneIds, strengths, errorConcepts: errConcepts, bias });
+    if (!nxt) { setStarted(false); return; }
+    if (drill && nxt.elementId !== drill) setDrill(null);
+    setPickReason(reason + (note ? ` • ${note}` : ''));
+    setI(qs.findIndex(x => x.id === nxt.id));
+    setTried(false); setMine(''); setPicked(null); setFb(null); setSim(null); setShowHint(false); setT0(Date.now());
   };
   const done = doneIds.length;
   return (
@@ -586,6 +691,7 @@ export function Recall() {
       <div className="between mb"><h1>🧠 {lesson?.title.slice(0, 30)}</h1>
         <span className="row"><Chip on>{kindAr[q.kind]} • مستوى {q.level ?? 2}</Chip><Btn sm onClick={() => setStarted(false)}>إنهاء</Btn></span></div>
       <div className="small mut mb">📎 {traceOf(q, lesson?.title ?? '')} • {done}/{qs.length} • {drill ? '🔧 وضع المعالجة: أسئلة نفس المعلومة' : lvlLine(q.level)}</div>
+      {pickReason && <div className="tiny mb" style={{ color: '#22d3ee' }}>🧠 {pickReason}</div>}
       <div className="mb"><Bar v={qs.length ? (done / qs.length) * 100 : 0} /></div>
       <Glass level={2} className={fb === 'good' ? 'good' : fb === 'bad' ? 'bad' : ''}>
         <div className="between"><span className="small mut">❓ {kindAr[q.kind]}</span>
@@ -669,6 +775,9 @@ export function Cards() {
           <span className="row"><span className="tiny mut">الفاصل: {card.interval} يوم • التكرار {card.reps} • إتقان المفهوم {masteryOf(card.conceptId)}%</span>
             <button className="btn sm ghost" title="حذف البطاقة" onClick={delCard}>🗑️</button></span></div>
         {!!card.sourceRef && <div className="tiny mut" style={{ marginTop: 4 }}>📎 من: {card.sourceRef.slice(0, 60)}</div>}
+        <div className="row mt" style={{ gap: 6 }}><span className="tiny mut">📅 المراجعة: {card.due}</span>
+          <input type="date" value={card.due} onChange={e => e.target.value && set(p => ({ ...p, flashcards: p.flashcards.map(f => f.id === card.id ? { ...f, due: e.target.value } : f) }))} style={{ maxWidth: 150 }} />
+          <span className="tiny mut">(غيّر الموعد متى شئت — القرار لك)</span></div>
         <div onClick={() => setFlip(!flip)} style={{ minHeight: 130, display: 'grid', placeItems: 'center', cursor: 'pointer', padding: 12 }}>
           {!flip ? <div style={{ fontSize: 17, fontWeight: 700, textAlign: 'center', width: '100%' }}>
             {card.front}<div className="tiny mut mt">اضغط للكشف 👆</div></div>
@@ -1108,24 +1217,23 @@ export function Sources() {
   const toLesson = (srcId: string) => {
     if (importText.trim().length < 20) return;
     const src = s.sources.find(x => x.id === srcId); if (!src) return;
-    const a = analyzeContent(importText, uid('l'), `${src.title} — ${src.url}`);
     const lid = uid('l');
-    const concepts = buildGraph(a.concepts.map(c => ({ ...c, lessonId: lid })));
-    const elements = extractElements(importText, lid);
-    const unitId = s.materials.find(m => m.id === src.materialId)?.units[0]?.id ?? '';
     const lm = { id: lid, title: src.title.slice(0, 45), sourceRef: `${src.title} — ${src.url}` };
+    const mat = s.materials.find(m => m.id === src.materialId);
+    const ingest = runIngest(importText, lm, mat?.name ?? '', s.exams.flatMap(e => e.analysis.topics));
+    const unitId = mat?.units[0]?.id ?? '';
     const nl: Lesson = {
       id: lid, unitId, title: src.title.slice(0, 45), sourceText: importText,
-      sourceRef: `${src.title} — ${src.url}`, sections: a.sections, elements, concepts, summary: a.summary,
-      mindmap: buildMindmap(src.title.slice(0, 30), concepts),
-      mastery: Math.round(concepts.reduce((x, c) => x + c.mastery, 0) / Math.max(1, concepts.length)),
+      sourceRef: `${src.title} — ${src.url}`, sections: ingest.sections, elements: ingest.elements, concepts: ingest.concepts, summary: ingest.summary,
+      mindmap: buildMindmap(src.title.slice(0, 30), ingest.concepts),
+      mastery: ingest.concepts.length ? Math.round(ingest.concepts.reduce((x, c) => x + c.mastery, 0) / ingest.concepts.length) : 20,
     };
     set(p => ({
       ...p,
       materials: p.materials.map(m => m.id === src.materialId
         ? { ...m, units: m.units.map((u, j) => j === 0 ? { ...u, lessons: [...u.lessons, nl] } : u) } : m),
-      flashcards: [...p.flashcards, ...concepts.flatMap(c => conceptToCards(c, lm)).slice(0, 8)],
-      recallBank: [...p.recallBank, ...generateFromElements(lm, elements, concepts, p.exams.flatMap(e => e.analysis.topics), 14), ...generateRecall(lm, concepts, 6)],
+      flashcards: [...p.flashcards, ...ingest.cards],
+      recallBank: [...p.recallBank, ...ingest.questions],
     }));
     setImportId(null); setImportText(''); addXP(set, 30);
   };

@@ -4,6 +4,7 @@ import { useStore, addXP } from '../core/store';
 import type { Task } from '../core/types';
 import { addDays, todayISO, uid } from '../core/types';
 import { build30Day, coachAdvices, decisionQueue, forgettingQueue, masteryAfter, smartSearch, uniScenarios, similarity as simOf, gradeOf } from '../core/ai';
+import { parseScheduleText } from '../core/brain';
 import { Area, Bar, Btn, Chip, Glass, MasteryDot, Modal, Radar, Ring, Sheet } from '../ui/kit';
 import { AttachSheet, AttList, collectFiles, useFilePicker, type AttFile } from '../ui/attach';
 import { str } from '../core/i18n';
@@ -426,27 +427,49 @@ export function WeeklySchedule() {
   const [ocrMsg, setOcrMsg] = useState<string | null>(null);
   const picker = useFilePicker(fl => {
     if (!fl) return;
-    collectFiles(fl, t => setOcrText(prev => (prev ? prev + '\n' : '') + t)).then(fs => setShots(prev => [...prev, ...fs]));
+    collectFiles(fl, t => setOcrText(prev => (prev ? prev + '\n' : '') + t)).then(fs => {
+      setShots(prev => {
+        const next = [...prev, ...fs];
+        // العقل: صورة جدول مرفقة → استخراج تلقائي فوري (نص + أيام + مواد)
+        const imgs = next.filter(f => f.preview);
+        if (imgs.length) void autoScheduleOcr(imgs);
+        return next;
+      });
+    });
   });
-  // simulated OCR import
+  const autoScheduleOcr = async (imgs: AttFile[]) => {
+    setOcrBusy(true); setOcrMsg('🔍 العقل يقرأ صورة الجدول…');
+    try {
+      const mod = await import('../core/ocr');
+      const parts: string[] = [];
+      for (const im of imgs) {
+        const r = await mod.ocrImage(im.preview!);
+        if ('text' in r && r.text.trim()) parts.push(r.text);
+      }
+      if (parts.length) {
+        const full = parts.join('\n');
+        setOcrText(full);
+        const rows = parseScheduleText(full, s.materials.map(m => m.name));
+        setPreview(rows);
+        const exams = rows.filter(r => r.type === 'exam').length;
+        const unclear = rows.filter(r => r.label.includes('غير واضح')).length;
+        setOcrMsg(`✅ قرأ العقل ${imgs.length} صور: ${rows.length} حصص (${rows.length - exams} دراسة${exams ? ` + ${exams} امتحانات` : ''})${unclear ? ` — ${unclear} مواد غير واضحة ⚠️ عدّلها في المعاينة، ولن أخمنها` : ''} — راجع وعدّل ثم احفظ.`);
+      } else {
+        setOcrMsg('⚠️ الصورة غير واضحة — حددت الأجزاء الغامضة: اكتب الأيام والساعات يدوياً، ولن أخمنها.');
+      }
+    } catch { setOcrMsg('⚠️ تعذّر التشغيل — اكتب الجدول يدوياً.'); }
+    setOcrBusy(false);
+  };
+  // العقل يحوّل النص لأيام + أوقات + مواد (مع نطاقات مثل من الأحد للخميس)
   const parsePreview = () => {
     if (ocrText.trim().length < 12) { setConfirm('النص قصير أو غير واضح. هل تقصد: الأحد 8-14 مدرسة؟ اضغط تأكيد لإضافة كتلة افتراضية، أو عدّل النص.'); return; }
-    const days = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-    const found = days.map((d, i) => ({ d, i })).filter(x => ocrText.includes(x.d));
-    const timeRe = /(\d{1,2})(?::(\d{2}))?\s*[-–—إلى]\s*(\d{1,2})(?::(\d{2}))?/g;
-    const times = [...ocrText.matchAll(timeRe)].map(m => ({
-      start: `${m[1].padStart(2, '0')}:${m[2] ?? '00'}`, end: `${m[3].padStart(2, '0')}:${m[4] ?? '00'}`,
-    }));
-    const rows = (found.length ? found : [{ d: 'الأحد', i: 0 }]).map((f, k) => ({
-      day: f.i, start: times[k]?.start ?? '08:00', end: times[k]?.end ?? '14:00',
-      label: /اختبار|امتحان/.test(ocrText) ? 'اختبار' : /مدرسة/.test(ocrText) ? 'المدرسة' : f.d,
-      type: (/اختبار|امتحان/.test(ocrText) ? 'exam' : 'school') as 'school' | 'exam' | 'busy',
-    }));
+    const rows = parseScheduleText(ocrText, s.materials.map(m => m.name));
+    if (!rows.length) { setConfirm('لم أجد أياماً ولا مواد مؤكدة في النص — لن أخمن. اكتب مثل: الأحد 8-14 فيزياء، أو اضغط تأكيد لإضافة كتلة مدرسة افتراضية للأحد.'); return; }
     setPreview(rows);
   };
   const savePreview = () => {
     set(p => ({ ...p, schedule: [...p.schedule, ...preview.map(r => ({ id: uid('s'), day: r.day as 0 | 1 | 2 | 3 | 4 | 5 | 6, start: r.start, end: r.end, label: r.label, type: r.type }))] }));
-    setPreview([]); setOcrText(''); setShots([]); addXP(set, 20);
+    setPreview([]); setOcrText(''); setShots([]);
   };
   const runSchedOcr = async () => {
     const imgs = shots.filter(f => f.preview);

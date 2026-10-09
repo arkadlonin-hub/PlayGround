@@ -145,3 +145,42 @@ label.lbl { display: block; font-size: 12px; color: var(--mut); margin: 10px 0 6
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 button, .check, .mask-word { min-height: 36px; }
+
+/* ——— Subtle polish pass (no layout / identity change) ——— */
+body {
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3 { line-height: 1.4; letter-spacing: -.01em; text-wrap: balance; }
+.small, .tiny, .mut { line-height: 1.6; }
+::selection { background: rgba(34,211,238,.32); color: #fff; }
+input::placeholder, textarea::placeholder { color: rgba(148,163,184,.65); }
+input, textarea, select { transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; }
+.btn { transition: transform .12s ease, box-shadow .2s ease, background .18s ease, border-color .18s ease, filter .18s ease; }
+@media (hover: hover) {
+  .btn:hover { filter: brightness(1.06); }
+  .btn.ghost:hover { background: rgba(255,255,255,.06); }
+  .chip:hover { background: rgba(255,255,255,.09); }
+  .task:hover { border-color: rgba(255,255,255,.16); background: rgba(255,255,255,.05); }
+  .nav button:hover { color: var(--ink); }
+  .mask-word:hover { border-color: rgba(255,255,255,.22); }
+}
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.pri:disabled { box-shadow: none; filter: saturate(.6); }
+.task { transition: border-color .18s ease, background .18s ease, opacity .2s ease; }
+.chip { transition: background .18s ease, border-color .18s ease; }
+.mask-word { transition: border-color .18s ease, background .18s ease; }
+.mnode { transition: border-color .18s ease, background .18s ease; }
+button.mnode:hover { border-color: rgba(34,211,238,.45); background: rgba(34,211,238,.08); }
+.nav { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+.sheet { padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
+.app { padding-top: max(16px, env(safe-area-inset-top, 0px)); }
+.pbar { height: 8px; box-shadow: inset 0 1px 2px rgba(0,0,0,.35); }
+.logo { letter-spacing: -.02em; }
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .glass2, .glass3, .nav, .sheet { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .glass { background: #10142a; } .glass2 { background: #141936; } .glass3 { background: #181f42; }
+  .nav { background: #0a0d1f; } .sheet { background: #10142a; }
+  .blobs { display: none; }
+}

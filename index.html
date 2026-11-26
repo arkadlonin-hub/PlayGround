@@ -12,7 +12,13 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <div class="app-shell">
+  <section class="start-screen" id="start-screen" aria-label="شاشة البداية">
+    <div class="start-orb start-orb-one"></div><div class="start-orb start-orb-two"></div>
+    <header class="start-header"><div class="brand-lockup"><div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36"><path d="M5 25.5c4.2-1.6 6.3-7.5 9.5-9 3.2-1.5 5.2 1.5 8.3 0 2.3-1.1 3.9-4.1 8.8-5.8M5 30c5.8-2 8.5-4.3 11.6-4.4 3.3-.1 5.4 2.2 8.8 1.5 2.1-.4 3.6-1.7 5.6-2.8"/><circle cx="11" cy="9" r="2"/></svg></div><div><div class="brand-name">مَرافِئ</div><div class="brand-caption">محاكاة إدارة الدولة</div></div></div><button class="icon-button" id="start-settings-button" aria-label="إعدادات اللعبة">⚙</button></header>
+    <main class="start-main"><div class="start-copy"><span class="start-kicker">رحلة حكم جديدة</span><h1>اصنع دولةً تليق<br><em>بالمستقبل.</em></h1><p>اختر انطلاقاً واقعياً أو تخيلياً، صمّم مؤسساتك وابدأ محاكاة تنبض بالتغير.</p></div><div class="start-actions glass" aria-label="خيارات بدء اللعبة"><button class="start-action primary" data-start-action="new"><span class="start-action-icon">＋</span><span><strong>بدء لعبة جديدة</strong><small>إنشاء دولة وعالم جديد</small></span><b>←</b></button><button class="start-action" data-start-action="continue"><span class="start-action-icon">↗</span><span><strong>متابعة لعبة محفوظة</strong><small id="saved-game-label">لا توجد محاكاة محفوظة</small></span><b>←</b></button><button class="start-action" data-start-action="world"><span class="start-action-icon">◉</span><span><strong>إنشاء عالم مخصص</strong><small>دول متعددة وسيناريوهات عالمية</small></span><b>←</b></button></div></main>
+  </section>
+  <section class="setup-screen" id="setup-screen" aria-label="معالج إنشاء الدولة"><header class="setup-header glass"><button class="setup-back" id="setup-back" aria-label="العودة">←</button><div class="setup-brand"><span class="brand-name">إنشاء الدولة</span><span class="setup-step-label" id="setup-step-label">الخطوة ١ من ٤</span></div><button class="setup-close" id="setup-close">خروج</button></header><div class="setup-progress" id="setup-progress"></div><main class="setup-main"><aside class="setup-aside"><span class="eyebrow">نمط البداية</span><h2 id="setup-aside-title">من أين تبدأ؟</h2><p id="setup-aside-copy">اختر الأساس الجغرافي والسياسي لرحلتك.</p><div class="setup-summary" id="setup-summary"></div></aside><div class="setup-content glass" id="setup-content"></div></main></section>
+  <div class="app-shell" id="game-shell" hidden>
     <header class="topbar glass">
       <div class="brand-lockup">
         <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36"><path d="M5 25.5c4.2-1.6 6.3-7.5 9.5-9 3.2-1.5 5.2 1.5 8.3 0 2.3-1.1 3.9-4.1 8.8-5.8M5 30c5.8-2 8.5-4.3 11.6-4.4 3.3-.1 5.4 2.2 8.8 1.5 2.1-.4 3.6-1.7 5.6-2.8"/><circle cx="11" cy="9" r="2"/></svg></div>

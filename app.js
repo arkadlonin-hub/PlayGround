@@ -246,5 +246,6 @@
     if (!confirm('هل تريد بدء محاكاة جديدة؟ سيُحذف الحفظ المحلي الحالي.')) return;
     state = { ...START_STATE }; dayProgress = 0; saveState(); activeSection = 'overview'; settings.close(); renderMetrics(); showToast('بدأت محاكاة جديدة في إقليم السهول');
   });
+  showStart();
   renderMetrics();
 })();

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b2427">
+  <meta name="description" content="مرافئ — محاكاة عربية لإدارة دولة نامية في عالم متغير">
+  <title>مرافئ | محاكاة إدارة الدولة</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;450;500;550;600;650;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar glass">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36"><path d="M5 25.5c4.2-1.6 6.3-7.5 9.5-9 3.2-1.5 5.2 1.5 8.3 0 2.3-1.1 3.9-4.1 8.8-5.8M5 30c5.8-2 8.5-4.3 11.6-4.4 3.3-.1 5.4 2.2 8.8 1.5 2.1-.4 3.6-1.7 5.6-2.8"/><circle cx="11" cy="9" r="2"/></svg></div>
+        <div><div class="brand-name">مَرافِئ</div><div class="brand-caption">محاكاة إدارة الدولة</div></div>
+      </div>
+      <div class="topbar-center"><span class="world-indicator"><i></i> عالم مستمر</span><span class="top-divider"></span><span class="save-state"><span class="save-dot"></span> حُفظت التغييرات</span></div>
+      <div class="topbar-tools">
+        <button class="icon-button" id="sound-toggle" aria-label="تشغيل أو إيقاف الصوت" title="الصوت"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Zm12-1.5a5 5 0 0 1 0 7m2-9.5a8.5 8.5 0 0 1 0 12"/></svg></button>
+        <button class="icon-button" id="settings-button" aria-label="الإعدادات" title="الإعدادات"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.2 1-1.5 2.6-1.5-.5a7.8 7.8 0 0 1-1.8 1l-.3 1.6h-3l-.3-1.6a7.8 7.8 0 0 1-1.8-1l-1.5.5-1.5-2.6 1.2-1a8.5 8.5 0 0 1 0-2l-1.2-1 1.5-2.6 1.5.5a7.8 7.8 0 0 1 1.8-1l.3-1.6h3l.3 1.6a7.8 7.8 0 0 1 1.8 1l1.5-.5 1.5 2.6-1.2 1a8.5 8.5 0 0 1 0 2Z"/></svg></button>
+        <div class="avatar" aria-label="رئيس الدولة">م</div>
+      </div>
+    </header>
+
+    <main class="game-layout">
+      <aside class="command-panel glass" aria-label="لوحة إدارة الدولة">
+        <div class="country-heading"><div><div class="eyebrow">الدولة · إقليم السهول</div><h1 id="active-title">نظرة عامة</h1></div><button class="more-button" id="country-menu" aria-label="خيارات الدولة">•••</button></div>
+        <div class="date-card">
+          <div class="date-ornament"><svg viewBox="0 0 44 44"><path d="M7 34 22 7l15 27H7Z"/><path d="m14 34 8-14 8 14M18 27h8"/><circle cx="22" cy="7" r="2"/></svg></div>
+          <div class="date-copy"><span class="eyebrow">التاريخ الوطني</span><strong id="date-label">١ مارس ٢٠٢٦</strong><small id="day-label">الأحد · الربيع المبكر</small></div>
+          <div class="date-weather"><span>☀</span><strong>٢٢°</strong><small>صحو</small></div>
+        </div>
+        <section class="metrics-grid" aria-label="المؤشرات الوطنية">
+          <article class="metric-card treasury-card"><div class="metric-top"><span class="metric-icon gold-icon">◈</span><span class="metric-label">الخزانة</span><span class="trend up" id="treasury-trend">↑</span></div><strong class="metric-value" id="treasury-value">١٢٫٤ <small>مليار</small></strong><div class="metric-foot"><span>الإيراد اليومي</span><b id="income-value">+١٨٫٦ م</b></div></article>
+          <article class="metric-card"><div class="metric-top"><span class="metric-icon jade-icon">⌂</span><span class="metric-label">السكان</span><span class="trend up">↑</span></div><strong class="metric-value" id="population-value">٨٫٢ <small>مليون</small></strong><div class="metric-foot"><span>نمو سنوي</span><b>١٫٤٪</b></div></article>
+          <article class="metric-card"><div class="metric-top"><span class="metric-icon terracotta-icon">◉</span><span class="metric-label">الاستقرار</span><span class="trend steady">—</span></div><strong class="metric-value" id="stability-value">٧٢<small>٪</small></strong><div class="mini-meter"><i id="stability-meter" style="width:72%"></i></div></article>
+          <article class="metric-card"><div class="metric-top"><span class="metric-icon blue-icon">↗</span><span class="metric-label">الاقتصاد</span><span class="trend up">↑</span></div><strong class="metric-value" id="economy-value">مستقر</strong><div class="metric-foot"><span>الناتج المحلي</span><b>١٤٨ م.د</b></div></article>
+        </section>
+        <section class="section-content" id="section-content" aria-live="polite"></section>
+        <div class="panel-footer"><span class="footer-emblem">م</span><span>قرارات اليوم تصنع ملامح الغد</span><span class="footer-line"></span></div>
+      </aside>
+
+      <section class="world-panel" aria-label="الخريطة الوطنية">
+        <div class="map-topline"><div class="map-heading"><span class="map-kicker"><i></i> الخريطة الوطنية</span><h2>إقليم السهول</h2></div><div class="map-top-actions"><button class="map-action" id="layers-button"><span class="layers-icon">▱</span><span>الطبقات</span><span class="chevron">⌄</span></button><button class="map-action map-action-square" id="fullscreen-button" aria-label="ملء الشاشة" title="ملء الشاشة">⛶</button></div></div>
+        <div class="map-canvas" id="map-canvas">
+          <svg id="world-map" viewBox="0 0 1000 680" role="img" aria-label="خريطة تفاعلية لإقليم السهول تتضمن المدن والطرق والأنهار">
+            <defs>
+              <linearGradient id="sea" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#102f34"/><stop offset="1" stop-color="#17383a"/></linearGradient>
+              <linearGradient id="land" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#506b5c"/><stop offset=".52" stop-color="#62765c"/><stop offset="1" stop-color="#425e52"/></linearGradient>
+              <linearGradient id="nation" x1="0" y1="0" x2="1" y2=".9"><stop stop-color="#71856b"/><stop offset=".5" stop-color="#718064"/><stop offset="1" stop-color="#587362"/></linearGradient>
+              <pattern id="sea-lines" width="94" height="42" patternUnits="userSpaceOnUse"><path d="M0 22c18-8 35-8 52 0s27 7 42 0" fill="none" stroke="#8aa39b" stroke-opacity=".055" stroke-width="1"/></pattern>
+              <pattern id="field-lines" width="44" height="44" patternUnits="userSpaceOnUse" patternTransform="rotate(24)"><path d="M0 0v44M22 0v44" stroke="#e1d5a5" stroke-opacity=".08" stroke-width="1"/></pattern>
+              <filter id="country-shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter>
+              <filter id="soft-glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            <rect width="1000" height="680" fill="url(#sea)"/><rect width="1000" height="680" fill="url(#sea-lines)"/>
+            <path d="M0 0h443l-22 52 17 42-39 48 30 55-24 53 24 44-27 53 18 42-26 56 26 45-27 50 21 63H0Z" fill="#344f4c" opacity=".55"/>
+            <path d="M1000 0H636l31 43-19 39 34 52-24 58 34 43-31 50 23 48-31 49 24 55-27 51 24 61-19 49H1000Z" fill="#3a574e" opacity=".6"/>
+            <path d="M0 579c157-25 279-37 399-16 95 17 146 71 235 62 105-10 202-74 366-54v109H0Z" fill="#264449" opacity=".76"/>
+            <path d="M101 103c76-32 146 5 190-15 51-23 96-20 142 6l-22 51 22 48-24 51 25 43-30 50 19 43-25 42 22 40-30 50 14 53c-72 26-130 1-188 21-45 16-82 5-113-21l14-51-26-48 18-51-25-47 20-53-24-52 21-48Z" fill="#405d53" opacity=".8"/>
+            <path d="M675 88c80-29 147 1 203 44l-9 52 23 49-28 41 21 59-31 42 24 57-28 47 21 56-46 39c-73-20-116-1-167-41l15-48-20-48 24-47-21-46 25-48-23-54 21-49Z" fill="#465f51" opacity=".74"/>
+            <path d="M274 215c56-31 108-10 154-20 72-15 130-32 193 4l-20 55 18 45-24 48 17 48-26 53 17 45-30 50c-69 19-121-11-177 6-54 17-92-4-123-34l16-48-22-50 20-47-24-51 18-49-25-55Z" fill="url(#country-shadow)" filter="url(#country-shadow)" opacity=".64"/>
+            <path id="country-shape" d="M270 184c48-35 111-16 151-23 61-10 103-29 153 1l-13 54 21 42-20 49 23 45-20 48 16 42-25 46 16 47-27 44c-61 20-111-6-160 7-44 12-84-5-111-35l15-43-23-46 19-47-23-43 18-46-24-45 16-44Z" fill="url(#nation)" stroke="#d5c899" stroke-width="2.3" stroke-dasharray="6 3"/>
+            <path d="M270 184c48-35 111-16 151-23 61-10 103-29 153 1l-13 54 21 42-20 49 23 45-20 48 16 42-25 46 16 47-27 44c-61 20-111-6-160 7-44 12-84-5-111-35l15-43-23-46 19-47-23-43 18-46-24-45 16-44Z" fill="url(#field-lines)" opacity=".7" pointer-events="none"/>
+            <g class="terrain" fill="none" stroke="#d2c49b" stroke-opacity=".23" stroke-width="1.2"><path d="M301 218c51 19 91 5 131 15s60 24 115 10"/><path d="M289 233c47 17 82 8 122 18s72 26 126 12"/><path d="M290 249c45 13 79 9 120 19s72 25 124 15"/><path d="M300 393c57-23 94-8 131-21s72-26 128-17"/><path d="M306 410c54-21 91-8 128-20s72-25 125-18"/><path d="M305 426c51-18 91-6 129-19s73-24 123-18"/></g>
+            <g class="borders" fill="none" stroke="#d4cda9" stroke-opacity=".35" stroke-width="1.2" stroke-dasharray="3 5"><path d="M358 163 369 210 349 253 368 298 344 341 361 389 340 430 350 470"/><path d="M445 159 454 205 436 248 455 290 435 334 450 377 426 424 438 470"/><path d="M529 168 520 214 541 257 523 302 545 344 524 387 540 429 513 474"/></g>
+            <g class="roads" fill="none" stroke-linecap="round"><path d="M319 365Q395 343 455 348T571 344" stroke="#ead5a9" stroke-opacity=".7" stroke-width="2.3"/><path d="M397 205Q410 279 455 348T476 469" stroke="#ddc89e" stroke-opacity=".62" stroke-width="2"/><path d="M319 365Q355 303 397 205" stroke="#dfcda5" stroke-opacity=".53" stroke-width="1.7"/><path d="M455 348Q517 303 565 222" stroke="#e0cda2" stroke-opacity=".57" stroke-width="1.8"/><path d="M455 348Q520 398 572 448" stroke="#e0cda2" stroke-opacity=".5" stroke-width="1.7"/><path d="M398 205Q482 194 565 222" stroke="#e0cda2" stroke-opacity=".45" stroke-width="1.5"/><path d="M319 365Q384 428 476 469" stroke="#e0cda2" stroke-opacity=".5" stroke-width="1.6"/></g>
+            <path d="M531 142c-25 36-8 58-36 83s-23 44-51 61-12 42-37 57-8 50-37 71" fill="none" stroke="#77bab1" stroke-width="8" stroke-opacity=".16" stroke-linecap="round"/><path d="M531 142c-25 36-8 58-36 83s-23 44-51 61-12 42-37 57-8 50-37 71" fill="none" stroke="#83c6bb" stroke-width="2.2" stroke-opacity=".8" stroke-linecap="round"/><path d="M421 286c27 11 31 22 49 38" fill="none" stroke="#83c6bb" stroke-width="1.5" stroke-opacity=".7"/>
+            <g class="forest" fill="#8c9a70" fill-opacity=".68"><circle cx="301" cy="211" r="3"/><circle cx="309" cy="217" r="2.4"/><circle cx="299" cy="223" r="2.5"/><circle cx="550" cy="390" r="3"/><circle cx="559" cy="397" r="2.5"/><circle cx="550" cy="405" r="2.4"/><circle cx="493" cy="219" r="2.8"/><circle cx="500" cy="225" r="2.2"/></g>
+            <g class="map-labels" font-family="IBM Plex Sans Arabic, sans-serif" text-anchor="middle">
+              <text x="510" y="130" class="terrain-label">مرتفعات الشمال</text><text x="365" y="457" class="terrain-label">غابات الوادي</text><text x="737" y="381" class="terrain-label outside-label">هضبة الشرق</text><text x="120" y="337" class="terrain-label outside-label">الساحل الغربي</text>
+              <text x="629" y="306" class="water-label" transform="rotate(-55 629 306)">نهر السرو</text>
+            </g>
+            <g class="city major" data-city="العاصمة مرافئ" tabindex="0" role="button" transform="translate(455 348)"><circle r="15" class="city-halo"/><circle r="6.5" class="city-dot"/><circle r="2.2" class="city-core"/><text x="18" y="-13">مرافئ</text><text x="18" y="2" class="city-sub">العاصمة</text></g>
+            <g class="city" data-city="مدينة السرو" tabindex="0" role="button" transform="translate(397 205)"><circle r="10" class="city-halo"/><circle r="4.2" class="city-dot"/><text x="-13" y="-12" text-anchor="end">السرو</text></g>
+            <g class="city" data-city="مدينة السهل" tabindex="0" role="button" transform="translate(565 222)"><circle r="10" class="city-halo"/><circle r="4.2" class="city-dot"/><text x="14" y="-10">السهل</text></g>
+            <g class="city" data-city="مدينة الميناء" tabindex="0" role="button" transform="translate(319 365)"><circle r="10" class="city-halo"/><circle r="4.2" class="city-dot"/><text x="-13" y="18" text-anchor="end">الميناء</text></g>
+            <g class="city" data-city="مدينة الروابي" tabindex="0" role="button" transform="translate(476 469)"><circle r="10" class="city-halo"/><circle r="4.2" class="city-dot"/><text x="18" y="18">الروابي</text></g>
+            <g class="village" transform="translate(362 292)"><circle r="2.8"/><text x="-8" y="15" text-anchor="end">عين الزيتون</text></g><g class="village" transform="translate(515 282)"><circle r="2.8"/><text x="8" y="15">المرج</text></g><g class="village" transform="translate(393 414)"><circle r="2.8"/><text x="-8" y="16" text-anchor="end">قرية الصفصاف</text></g><g class="village" transform="translate(535 421)"><circle r="2.8"/><text x="9" y="15">السواقي</text></g><g class="village" transform="translate(458 246)"><circle r="2.8"/><text x="8" y="14">تل النور</text></g>
+            <g class="north-mark" transform="translate(913 112)"><path d="M0 28 9 0l9 28-9-6Z"/><text x="9" y="-8">ش</text></g>
+            <g class="scale-mark" transform="translate(824 558)"><path d="M0 0h74M0-4v8M74-4v8"/><text x="37" y="-9">٥٠ كم</text></g>
+          </svg>
+          <div class="map-fade" aria-hidden="true"></div>
+          <div class="map-legend glass"><span class="legend-title">دليل الخريطة</span><span><i class="legend-city"></i> مدينة</span><span><i class="legend-town"></i> قرية</span><span><i class="legend-road"></i> طريق رئيسي</span><span><i class="legend-river"></i> نهر</span></div>
+          <div class="map-controls glass" aria-label="أدوات الخريطة"><button id="zoom-in" aria-label="تكبير">＋</button><button id="zoom-out" aria-label="تصغير">−</button><span class="control-separator"></span><button id="rotate-map" aria-label="تدوير الخريطة">↻</button><button id="reset-map" aria-label="إعادة ضبط الخريطة">⌖</button></div>
+          <div class="map-tooltip glass" id="map-tooltip"></div>
+          <div class="map-attribution">إقليم السهول <span>·</span> خريطة توضيحية</div>
+        </div>
+        <div class="map-bottom glass"><div class="map-summary"><span class="summary-emblem">⌖</span><span><strong>دولة نامية، فرصها واسعة</strong><small>٥ أقاليم · ١٢ مدينة · ٨٤ بلدة</small></span></div><div class="simulation-controls" aria-label="التحكم بسرعة المحاكاة"><button id="pause-button" class="pause-button" aria-label="إيقاف المحاكاة مؤقتاً"><span id="pause-icon">Ⅱ</span><span id="pause-label">إيقاف</span></button><span class="speed-label">السرعة</span><div class="speed-options"><button data-speed="1" class="speed-option active" aria-label="سرعة هادئة">١×</button><button data-speed="2" class="speed-option" aria-label="سرعة متوازنة">٢×</button><button data-speed="4" class="speed-option" aria-label="سرعة متسارعة">٤×</button></div></div><div class="map-status"><span class="pulse-dot"></span> البنية التحتية مستقرة <i></i> آخر تحديث الآن</div><button class="open-map-button" id="open-map-button">استكشاف الأقاليم <span>←</span></button></div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav glass" aria-label="التنقل الرئيسي">
+      <button class="nav-item active" data-section="overview"><span class="nav-icon">◫</span><span>الرئيسية</span></button>
+      <button class="nav-item" data-section="government"><span class="nav-icon">⌂</span><span>الحكومة</span></button>
+      <button class="nav-item" data-section="economy"><span class="nav-icon">◈</span><span>الاقتصاد</span></button>
+      <button class="nav-item" data-section="population"><span class="nav-icon">♧</span><span>السكان</span></button>
+      <button class="nav-item" data-section="infrastructure"><span class="nav-icon">⌁</span><span>البنية</span></button>
+      <button class="nav-item" data-section="reports"><span class="nav-icon">▤</span><span>التقارير</span></button>
+    </nav>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <dialog class="settings-dialog glass" id="settings-dialog"><form method="dialog"><button class="dialog-close" aria-label="إغلاق">×</button><span class="eyebrow">تفضيلات المحاكاة</span><h2>إعدادات الدولة</h2><p>تُحفظ حالتك محلياً على هذا الجهاز.</p><div class="setting-row"><span>حفظ تلقائي</span><span class="setting-enabled">مفعّل</span></div><div class="setting-row"><span>تلميحات التعلّم</span><button class="text-action" id="help-toggle" type="button">عرض التلميح</button></div><button class="reset-save" id="reset-save" type="button">إعادة بدء المحاكاة</button></form></dialog>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
